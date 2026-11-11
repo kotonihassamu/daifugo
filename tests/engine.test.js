@@ -38,8 +38,6 @@ test('パスが1周すると場が流れ、最後に出した人から', () => {
   act(s, 'c', { type: 'pass' });
   assert.equal(s.game.field.length, 0);
   assert.equal(s.game.turn, 'a');
-  // b はパスしたが出せるカードがあったので回数に数える
-  assert.equal(s.game.passesUsed.b, 1);
 });
 
 test('パスした人も次の手番では出せる', () => {
@@ -52,24 +50,26 @@ test('パスした人も次の手番では出せる', () => {
   assert.equal(s.game.turn, 'c');
 });
 
-test('出せないパスは数えない・回数切れのパスは不可', () => {
-  const s = sim(['a', 'b'], { a: ['S2', 'S3', 'S4', 'S5'], b: ['H3', 'H4', 'H5', 'HK'] });
-  act(s, 'a', { type: 'play', cards: ['S2'] });
-  act(s, 'b', { type: 'pass' });
-  assert.equal(s.game.passesUsed.b || 0, 0);
-  assert.equal(s.game.turn, 'a');
-  // b に3回パスさせる
-  for (let i = 0; i < 3; i++) {
+test('パスは何回でもできる', () => {
+  const s = sim(['a', 'b'], { a: ['S3', 'S4', 'S5', 'S6', 'S9'], b: ['HK', 'HQ'] });
+  for (let i = 0; i < 6; i++) {
     s.game.turn = 'b';
     s.game.field = [{ by: 'a', cards: ['S3'], type: 'single', size: 1, low: 3, jr: null }];
     s.game.lastBy = 'a';
-    act(s, 'b', { type: 'pass' });
+    act(s, 'b', { type: 'pass' }); // 出せるカードがあってもパスできる
+    assert.equal(s.game.turn, 'a');
   }
-  assert.equal(s.game.passesUsed.b, 3);
-  s.game.turn = 'b';
-  s.game.field = [{ by: 'a', cards: ['S3'], type: 'single', size: 1, low: 3, jr: null }];
-  s.game.lastBy = 'a';
-  assert.throws(() => act(s, 'b', { type: 'pass' }), RuleError);
+  // 親はパスできない
+  assert.throws(() => act(s, 'a', { type: 'pass' }), RuleError);
+});
+
+test('階段の革命は同じマークの4枚以上だけ', () => {
+  const s = sim(['a', 'b'], { a: ['S3', 'S4', 'H5', 'S6', 'C9'], b: ['HK'] });
+  act(s, 'a', { type: 'play', cards: ['S3', 'S4', 'H5', 'S6'] });
+  assert.equal(s.game.effects.revolution, false);
+  const t = sim(['a', 'b'], { a: ['S3', 'S4', 'JK1', 'S6', 'C9'], b: ['HK'] });
+  act(t, 'a', { type: 'play', cards: ['S3', 'S4', 'JK1', 'S6'] });
+  assert.equal(t.game.effects.revolution, true); // ジョーカーはそのマークの代わり
 });
 
 test('最後に出した人が上がっていたら次の人から', () => {
@@ -297,7 +297,7 @@ function randomGame(n, seed, gameNo = 1, prevTitles = {}) {
     const u = g.turn;
     const top = g.field[g.field.length - 1] || null;
     const lp = legalPlays(s.hands[u], top, g.effects);
-    if (lp.any && (r() < 0.8 || g.field.length === 0 || (g.passesUsed[u] || 0) >= 3)) {
+    if (lp.any && (r() < 0.8 || g.field.length === 0)) {
       const cards = pick(lp.plays);
       const opts = interpretations(cards);
       act(s, u, { type: 'play', cards, interp: pick(opts).key });

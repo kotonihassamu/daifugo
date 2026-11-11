@@ -188,8 +188,29 @@ export class RoomController extends EventTarget {
   }
 
   // ---------- ゲーム開始(ホスト) ----------
+  // 次のゲームに座る人:待合室で「参加する」を押していて接続中の人(ホストは常に含む)。参加順に最大8人
   seatedForNextGame() {
-    return this.players.filter((p) => p.online !== false).slice(0, MAX_PLAYERS);
+    return this.players.filter((p) => p.online !== false && (p.ready || p.uid === this.hostUid)).slice(0, MAX_PLAYERS);
+  }
+
+  isReady(uid = this.uid) {
+    return uid === this.hostUid || !!this.player(uid)?.ready;
+  }
+
+  async setReady(ready) {
+    await this.b.update({ [`rooms/${this.roomId}/players/${this.uid}/ready`]: ready ? true : null, ...this.touch() });
+  }
+
+  // 待合室で切断中の人を外す(ホスト)
+  async removePlayer(uid) {
+    if (!this.isHost) throw new Error('ホストだけが操作できます');
+    if (uid === this.uid) return;
+    await this.b.update({ [`rooms/${this.roomId}/players/${uid}`]: null, ...this.touch() });
+  }
+
+  get inGame() {
+    const g = this.game;
+    return !!g && (g.status === 'playing' || g.status === 'exchange');
   }
 
   async startGame() {
@@ -197,9 +218,11 @@ export class RoomController extends EventTarget {
     const seated = this.seatedForNextGame();
     if (seated.length < 2) throw new Error('2人以上で開始できます');
     const order = seated.map((p) => p.uid);
-    const prevTitles = {};
-    for (const p of seated) if (p.title) prevTitles[p.uid] = p.title;
     const prev = this.game;
+    // 交換・先手・都落ちは直前のゲームの称号だけで決める(途中で抜けた人の古い称号は使わない)
+    const prevTitles = {};
+    const last = prev?.result?.titles || {};
+    for (const p of seated) if (last[p.uid]) prevTitles[p.uid] = last[p.uid];
     const gameNo = (prev?.gameNo || 0) + 1;
     const { game, hands, inbox } = dealGame({ order, gameNo, prevTitles, seq: prev?.seq || 0, actor: this.uid });
     const rid = this.roomId;
@@ -210,10 +233,12 @@ export class RoomController extends EventTarget {
       for (const it of inbox[u] || []) items[this.b.newKey()] = it;
       paths[`inbox/${rid}/${u}`] = Object.keys(items).length ? items : null;
     }
+    // 参加の意思表示はゲームごとにリセット(次のゲームの前にもう一度押してもらう)
+    for (const p of this.players) if (p.ready) paths[`rooms/${rid}/players/${p.uid}/ready`] = null;
     await this.b.update(paths);
   }
 
-  // 待合室へ戻る(ホスト)
+  // ゲームを中止して待合室へ戻る(ホスト)
   async backToLobby() {
     const g = this.game;
     if (!g) return;

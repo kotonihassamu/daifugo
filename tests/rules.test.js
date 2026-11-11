@@ -111,6 +111,10 @@ test('効果の検出', () => {
   assert.equal(d.sevens, 1);
   assert.equal(effectsOf(one(['JK1'])).eight, false);
   assert.equal(effectsOf(one(['S5', 'H5', 'D5', 'C5'])).revolution, true);
+  // 階段はマークがそろった4枚以上だけ革命
+  assert.equal(effectsOf(one(['S9', 'HT', 'SJ', 'SQ'])).revolution, false);
+  assert.equal(effectsOf(one(['S9', 'ST', 'SJ'])).revolution, false);
+  assert.equal(effectsOf(interpretations(['S9', 'JK1', 'SJ', 'SQ'])[0]).revolution, true);
 });
 
 test('出せる手の列挙', () => {

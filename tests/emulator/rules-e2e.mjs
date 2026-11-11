@@ -43,6 +43,9 @@ await denied(B.b.update({ [`rooms/${rid}/meta/hostUid`]: X.b.uid }), '存在し�
 await denied(B.b.update({ [`roomCodes/${code}`]: 'zzz' }), '部屋コードは上書き不可');
 await denied(B.b.update({ [`rooms/${rid}/game`]: { seq: 1, actor: B.b.uid, status: 'playing' } }), 'ホスト以外は開始できない');
 
+for (const p of [B, C, D]) await p.c.setReady(true);
+await sleep(300);
+check(A.c.seatedForNextGame().length === 4, 'ready 4');
 await A.c.startGame();
 await sleep(800);
 for (const p of cs.slice(0, 4)) check(p.c.game?.status === 'playing', 'started for ' + p.c.uid);
@@ -87,7 +90,7 @@ async function playGame() {
         } else if (gg.turn === me && !gg.pending && !gg.bombApply) {
           const top = gg.field[gg.field.length - 1] || null;
           const lp = legalPlays(c.hand, top, gg.effects);
-          if (lp.any && (Math.random() < 0.8 || !top || (gg.passesUsed[me] || 0) >= 3)) {
+          if (lp.any && (Math.random() < 0.8 || !top)) {
             const cards = lp.plays[Math.floor(Math.random() * lp.plays.length)];
             await c.perform({ type: 'play', cards, interp: interpretations(cards)[0].key });
           } else await c.perform({ type: 'pass' });
@@ -105,6 +108,9 @@ check(r1.result.ranking.length === 4, 'game1 finished');
 await sleep(500);
 check(Object.values(A.c.room.players).every((p) => p.title), 'titles written');
 check(Object.values(A.c.room.players).reduce((s, p) => s + p.points, 0) === 0, 'points sum 0');
+check(A.c.seatedForNextGame().length === 1, 'ready reset after start');
+for (const p of [B, C, D]) await p.c.setReady(true);
+await sleep(300);
 await A.c.startGame();
 await sleep(800);
 console.log('game2 status', A.c.game.status, 'first', A.c.game.first);
