@@ -391,7 +391,14 @@ function showResult() {
 }
 
 function openRules() {
-  openModal(`<div class="rules">${RULES_HTML}</div>`);
+  const modal = openModal(`<div class="rules">${RULES_HTML}</div>`);
+  modal.addEventListener('click', (e) => {
+    const id = e.target.closest('[data-jump]')?.dataset.jump;
+    if (!id) return;
+    const sec = modal.querySelector('#' + id);
+    sec?.querySelector('details')?.setAttribute('open', '');
+    sec?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }
 
 function openMenu() {
