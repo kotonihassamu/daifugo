@@ -288,7 +288,7 @@ function renderLobby() {
             const off = p.online === false;
             const isHost = p.uid === meta.hostUid;
             const joins = seatedSet.has(p.uid);
-            const state = off ? '<span class="tag off">切断中</span>' : joins ? '<span class="tag ok">参加</span>' : '<span class="tag">観戦</span>';
+            const state = off ? '<span class="tag off">切断中</span>' : joins ? '<span class="tag ok">参加</span>' : p.watch ? '<span class="tag">観戦</span>' : '<span class="tag">満席のため観戦</span>';
             return `<li class="${off ? 'offline' : ''}">
               <span class="dot ${off ? '' : 'on'}"></span>
               <span class="pname">${esc(p.name)}${p.uid === ctrl.uid ? '<span class="muted">(あなた)</span>' : ''}</span>
@@ -300,14 +300,14 @@ function renderLobby() {
           })
           .join('')}
       </ol>
-      <p class="muted small">「参加する」を押した人で次のゲームを始めます(参加順=席順・最大8人)。ゲームの途中で入った人は観戦になり、ここで参加できます。</p>
+      <p class="muted small">部屋にいる人は全員参加します(参加順=席順・最大8人)。見るだけの人は「観戦にする」を押してください。切断中の人は入りません。</p>
     </section>
     <div class="lobby-actions">
       ${ctrl.isHost
         ? `<button class="btn primary big wide" data-act="start" ${seated.length < 2 ? 'disabled' : ''}>ゲーム開始(${seated.length}人)</button>
-           ${seated.length < 2 ? '<p class="muted center-text small">2人以上が「参加する」を押すと開始できます</p>' : ''}`
-        : `<button class="btn ${meReady ? '' : 'primary'} big wide" data-act="ready">${meReady ? '参加をやめる(観戦する)' : '次のゲームに参加する'}</button>
-           <p class="muted center-text">${meReady ? `ホスト(${esc(host?.name || '?')})の開始を待っています…` : '参加するなら上のボタンを押してください'}</p>`}
+           ${seated.length < 2 ? '<p class="muted center-text small">参加者が2人以上になると開始できます</p>' : ''}`
+        : `<p class="muted center-text">${meReady ? `参加します。ホスト(${esc(host?.name || '?')})の開始を待っています…` : '観戦します。次のゲームには入りません'}</p>
+           <button class="btn ${meReady ? 'ghost' : 'primary big'} wide" data-act="ready">${meReady ? '観戦にする(見るだけ)' : '参加に戻す'}</button>`}
       <button class="btn wide" data-act="share">招待URLを送る</button>
       ${!ctrl.isHost && hostAway ? '<button class="btn wide" data-act="takeHost">ホストを引き継ぐ</button>' : ''}
       <button class="btn ghost wide" data-act="leave">部屋を出る</button>
@@ -382,7 +382,7 @@ function showResult() {
         })
         .join('')}
     </ol>
-    <p class="muted small">次のゲームは待合室で「参加する」を押した人で始めます。</p>
+    <p class="muted small">次のゲームは、待合室にいる人(観戦を選んだ人を除く)で始めます。</p>
     <button class="btn primary wide big" data-act="close">待合室へ</button>`;
   body.onclick = (e) => {
     if (e.target.closest('[data-act=close]')) closeModal();

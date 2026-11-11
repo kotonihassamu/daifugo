@@ -188,17 +188,18 @@ export class RoomController extends EventTarget {
   }
 
   // ---------- ゲーム開始(ホスト) ----------
-  // 次のゲームに座る人:待合室で「参加する」を押していて接続中の人(ホストは常に含む)。参加順に最大8人
+  // 次のゲームに座る人:部屋にいて接続中の人は全員(「観戦にする」を押した人を除く。ホストは常に参加)。参加順に最大8人
   seatedForNextGame() {
-    return this.players.filter((p) => p.online !== false && (p.ready || p.uid === this.hostUid)).slice(0, MAX_PLAYERS);
+    return this.players.filter((p) => p.online !== false && (!p.watch || p.uid === this.hostUid)).slice(0, MAX_PLAYERS);
   }
 
   isReady(uid = this.uid) {
-    return uid === this.hostUid || !!this.player(uid)?.ready;
+    return uid === this.hostUid || !this.player(uid)?.watch;
   }
 
+  // 参加する(true) / 観戦にする(false)
   async setReady(ready) {
-    await this.b.update({ [`rooms/${this.roomId}/players/${this.uid}/ready`]: ready ? true : null, ...this.touch() });
+    await this.b.update({ [`rooms/${this.roomId}/players/${this.uid}/watch`]: ready ? null : true, ...this.touch() });
   }
 
   // 待合室で切断中の人を外す(ホスト)
@@ -233,8 +234,6 @@ export class RoomController extends EventTarget {
       for (const it of inbox[u] || []) items[this.b.newKey()] = it;
       paths[`inbox/${rid}/${u}`] = Object.keys(items).length ? items : null;
     }
-    // 参加の意思表示はゲームごとにリセット(次のゲームの前にもう一度押してもらう)
-    for (const p of this.players) if (p.ready) paths[`rooms/${rid}/players/${p.uid}/ready`] = null;
     await this.b.update(paths);
   }
 
