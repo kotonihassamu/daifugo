@@ -2,7 +2,6 @@
 export const SUITS = ['S', 'H', 'D', 'C'];
 export const RANK_CHARS = ['3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A', '2'];
 export const JOKER_RANK = 16;
-export const MAX_PASS = 3;
 
 // 同じ数字の中での並び(弱い順)。ダイヤの3を「一番弱いカード」にするための順序
 export const SUIT_ORDER = { D: 0, C: 1, H: 2, S: 3 };

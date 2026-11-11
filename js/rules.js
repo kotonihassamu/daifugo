@@ -151,7 +151,8 @@ export function effectsOf(combo) {
     if (e.rank === 8) fx.eight = true;
     if (e.rank === 11 && combo.type !== 'seq') fx.jack = true;
   }
-  fx.revolution = (combo.type === 'group' && combo.size === 4) || (combo.type === 'seq' && combo.size >= 4);
+  // 階段の革命は同じマークの4枚以上のみ(ジョーカーはそのマークの代わりになる)
+  fx.revolution = (combo.type === 'group' && combo.size === 4) || (combo.type === 'seq' && combo.size >= 4 && new Set(concreteSuits(combo)).size <= 1);
   return fx;
 }
 

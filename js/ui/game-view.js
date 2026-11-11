@@ -1,5 +1,5 @@
 // ゲーム画面:テーブル配置・場・手札・操作ボタン・演出
-import { sortCards, cardLabel, rankLabel, MAX_PASS } from '../cards.js';
+import { sortCards, cardLabel, rankLabel } from '../cards.js';
 import { interpretations, canPlay, legalPlays, direction, describeCombo, lockLabel, requiredNumber } from '../rules.js';
 import { canPassNow, TITLES, fieldTop } from '../engine.js';
 import { cardSvg } from './card-svg.js';
@@ -57,13 +57,12 @@ export class GameView {
     this.root = root;
     this.ctrl = ctrl;
     this.settings = settings;
-    this.hooks = hooks; // { openMenu, openRules, startNext, backToLobby }
+    this.hooks = hooks; // { openMenu, openRules, saveSettings, showResult }
     this.sel = new Set();
     this.queue = [];
     this.running = false;
     this.bannerChain = Promise.resolve();
     this.myPlayRects = null;
-    this.resultShownFor = null;
     this.bombPromptFor = null;
     this.displayGame = null;
     this.mount();
@@ -182,10 +181,6 @@ export class GameView {
     this.renderPrompt(g);
     this.renderHand();
     this.renderControls(g);
-    if (g.status === 'result' && this.resultShownFor !== g.gameNo) {
-      this.resultShownFor = g.gameNo;
-      setTimeout(() => this.hooks.showResult(), reduceMotion() ? 0 : 700);
-    }
     if (g.pending?.type === 'bomb' && g.pending.uid === this.me && this.bombPromptFor !== g.seq) {
       this.bombPromptFor = g.seq;
       this.openBomb(g.pending.count);
@@ -232,7 +227,6 @@ export class GameView {
     if (title) tags.push(`<span class="tag t-${title}">${TITLES[title]}</span>`);
     if (p.online === false) tags.push('<span class="tag off">切断中</span>');
     if (g.passed[u] && place < 0) tags.push('<span class="tag pass">パス</span>');
-    if (g.status === 'playing' && place < 0 && g.ochi !== u) tags.push(`<span class="tag mini">パス残${Math.max(0, MAX_PASS - (g.passesUsed[u] || 0))}</span>`);
     const shown = Math.min(count, 8);
     const spread = Math.min(40, 6 + shown * 5);
     const fan = Array.from({ length: shown }, (_, i) => {
@@ -302,9 +296,7 @@ export class GameView {
       text = `カード交換中… ${waiting.map((u) => esc(this.name(u))).join('、')}さんが返すカードを選んでいます`;
       if (host && waiting.some(off)) btns.push(['skipExchange', '交換をスキップ']);
     } else if (g.status === 'result') {
-      text = 'ゲーム終了';
-      btns.push(['showResult', '結果を見る']);
-      if (host) btns.push(['next', '次のゲームへ']);
+      text = 'ゲーム終了 — まもなく待合室へ';
     } else if (g.bombApply) {
       const w = Object.keys(g.bombApply.waiting);
       text = `12ボンバー:${w.map((u) => esc(this.name(u))).join('、')}さんの反映待ち`;
@@ -488,8 +480,7 @@ export class GameView {
       play.textContent = '出す';
       play.disabled = !synced || this.playOptions(g).length === 0;
       const cp = canPassNow(g, this.me, this.ctrl.hand);
-      const left = MAX_PASS - (g.passesUsed[this.me] || 0);
-      pass.textContent = `パス 残り${Math.max(0, left)}`;
+      pass.textContent = 'パス';
       pass.disabled = !synced || !cp.ok;
       pass.title = cp.reason || '';
     } else if (m.kind === 'seven' || m.kind === 'ten' || m.kind === 'exchange') {
@@ -499,8 +490,7 @@ export class GameView {
     } else {
       play.textContent = '出す';
       play.disabled = true;
-      const left = g && g.status === 'playing' && g.order.includes(this.me) ? MAX_PASS - (g.passesUsed[this.me] || 0) : null;
-      pass.textContent = left == null ? 'パス' : `パス 残り${Math.max(0, left)}`;
+      pass.textContent = 'パス';
       pass.disabled = true;
     }
     this.el.sort.textContent = this.settings.sort === 'suit' ? 'マーク順' : '強さ順';
@@ -561,8 +551,6 @@ export class GameView {
       case 'forcePass': case 'skipPending': case 'skipBombWait': case 'skipExchange':
         await run({ type: act });
         return;
-      case 'showResult': return this.hooks.showResult();
-      case 'next': return this.hooks.startNext();
     }
   }
 

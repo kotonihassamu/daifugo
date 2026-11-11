@@ -35,6 +35,7 @@ let ctrl = null;
 let view = null;
 let screen = null;
 let localMode = false;
+let toLobbyTimer = null;
 
 document.body.insertAdjacentHTML('afterbegin', SVG_DEFS);
 
@@ -80,13 +81,27 @@ async function boot() {
 function wire() {
   ctrl.addEventListener('room', (e) => {
     const g = ctrl.game;
-    const want = g && g.status !== 'lobby' ? 'game' : 'lobby';
-    if (screen !== want) {
-      if (want === 'game') showGame();
-      else showLobby();
+    if (ctrl.inGame) {
+      clearTimeout(toLobbyTimer);
+      toLobbyTimer = null;
+      if (screen !== 'game') {
+        closeModal(true);
+        showGame();
+      }
+      view.onRoom(e.detail);
+    } else if (screen === 'game' && g?.status === 'result' && e.detail.prev && e.detail.prev.status !== 'result') {
+      // 最後の一手を見せてから待合室へ
+      view.onRoom(e.detail);
+      clearTimeout(toLobbyTimer);
+      toLobbyTimer = setTimeout(() => {
+        toLobbyTimer = null;
+        showLobby();
+        if (!document.querySelector('.modal-wrap')) showResult();
+      }, 2600);
+    } else if (!toLobbyTimer) {
+      if (screen !== 'lobby') showLobby();
+      else renderLobby();
     }
-    if (screen === 'game') view.onRoom(e.detail);
-    else renderLobby();
     keepAwake();
   });
   ctrl.addEventListener('hand', () => view?.onHand());
@@ -102,6 +117,7 @@ function wire() {
     goTop();
   });
   ctrl.addEventListener('kicked', () => {
+    toast('部屋から外れました。招待URLからもう一度参加できます', 4000);
     goTop();
   });
 }
@@ -139,8 +155,8 @@ function showTop() {
   app.innerHTML = `
     <div class="top">
       <div class="logo-fan">${fan}</div>
-      <h1 class="logo">大富豪</h1>
-      <p class="sub">友達とスマホで遊ぶオンライン大富豪</p>
+      <h1 class="logo">16組大富豪<span class="logo-sub">オンライン</span></h1>
+      <p class="sub">みんなのスマホで遊ぶ大富豪</p>
       <div class="top-buttons">
         <button class="btn primary big" data-act="create">部屋を作る</button>
         <button class="btn big" data-act="code">コードで参加</button>
@@ -213,7 +229,7 @@ function askCode() {
 
 function showJoin(rid) {
   screen = 'join';
-  app.innerHTML = `<div class="top"><h1 class="logo small">大富豪</h1><p class="sub">部屋に招待されました</p>${demoNote()}</div>`;
+  app.innerHTML = `<div class="top"><h1 class="logo small">16組大富豪<span class="logo-sub">オンライン</span></h1><p class="sub">部屋に招待されました</p>${demoNote()}</div>`;
   const form = document.createElement('form');
   form.className = 'form card-panel';
   form.innerHTML = `${nameField()}<button class="btn primary wide" type="submit">参加する</button><button class="btn ghost wide" type="button" data-top>トップへ</button>`;
@@ -249,48 +265,64 @@ function renderLobby() {
   const players = ctrl.players;
   const host = ctrl.player(meta.hostUid);
   const hostAway = !host || host.online === false;
-  const seated = ctrl.seatedForNextGame().length;
+  const seated = ctrl.seatedForNextGame();
+  const seatedSet = new Set(seated.map((p) => p.uid));
+  const meReady = ctrl.isReady();
+  const g = ctrl.game;
+  const last = g?.status === 'result' && g.result ? g : null;
   el.innerHTML = `
     <header class="lobby-head">
-      <div><div class="muted">部屋コード</div><div class="room-code">${esc(meta.code)}</div></div>
+      <div><div class="muted">16組大富豪オンライン・部屋コード</div><div class="room-code">${esc(meta.code)}</div></div>
       <button class="btn small ghost" data-act="rules">ルール</button>
     </header>
     ${demoNote()}
+    ${last ? `<section class="panel last-result">
+      <h2>第${last.gameNo}ゲームの結果 <button class="btn small ghost" data-act="result">詳しく</button></h2>
+      <ol class="mini-result">${last.result.ranking.map((u) => `<li>${esc(ctrl.player(u)?.name || '(退出)')} <span class="tag t-${last.result.titles[u]}">${TITLES[last.result.titles[u]]}</span></li>`).join('')}</ol>
+    </section>` : ''}
     <section class="panel">
-      <h2>参加者 <span class="muted">${players.length}人(最大8人・2人から)</span></h2>
+      <h2>待合室 <span class="muted">次のゲーム ${seated.length}人 / 部屋に${players.length}人</span></h2>
       <ol class="player-list">
         ${players
-          .map(
-            (p, i) => `<li class="${p.online === false ? 'offline' : ''}">
-              <span class="seat-no">${i + 1}</span>
-              <span class="dot ${p.online === false ? '' : 'on'}"></span>
+          .map((p) => {
+            const off = p.online === false;
+            const isHost = p.uid === meta.hostUid;
+            const joins = seatedSet.has(p.uid);
+            const state = off ? '<span class="tag off">切断中</span>' : joins ? '<span class="tag ok">参加</span>' : '<span class="tag">観戦</span>';
+            return `<li class="${off ? 'offline' : ''}">
+              <span class="dot ${off ? '' : 'on'}"></span>
               <span class="pname">${esc(p.name)}${p.uid === ctrl.uid ? '<span class="muted">(あなた)</span>' : ''}</span>
-              ${p.uid === meta.hostUid ? '<span class="host-mark">★ホスト</span>' : ''}
-              ${p.title ? `<span class="tag t-${p.title}">${TITLES[p.title]}</span>` : ''}
+              ${isHost ? '<span class="host-mark">★ホスト</span>' : ''}
+              ${state}
               <span class="pts">${(p.points || 0) > 0 ? '+' : ''}${p.points || 0}pt</span>
-            </li>`,
-          )
+              ${ctrl.isHost && off && p.uid !== ctrl.uid ? `<button class="btn small ghost kick" data-act="kick" data-uid="${esc(p.uid)}">外す</button>` : ''}
+            </li>`;
+          })
           .join('')}
       </ol>
-      <p class="muted small">並び順が席順(時計回り)です。切断中の人は次のゲームに入りません。</p>
-    </section>
-    <section class="panel invite">
-      <button class="btn wide" data-act="share">招待URLを送る</button>
+      <p class="muted small">「参加する」を押した人で次のゲームを始めます(参加順=席順・最大8人)。ゲームの途中で入った人は観戦になり、ここで参加できます。</p>
     </section>
     <div class="lobby-actions">
       ${ctrl.isHost
-        ? `<button class="btn primary big wide" data-act="start" ${seated < 2 ? 'disabled' : ''}>ゲーム開始(${seated}人)</button>`
-        : `<p class="muted center-text">ホスト(${esc(host?.name || '?')})の開始を待っています…</p>`}
+        ? `<button class="btn primary big wide" data-act="start" ${seated.length < 2 ? 'disabled' : ''}>ゲーム開始(${seated.length}人)</button>
+           ${seated.length < 2 ? '<p class="muted center-text small">2人以上が「参加する」を押すと開始できます</p>' : ''}`
+        : `<button class="btn ${meReady ? '' : 'primary'} big wide" data-act="ready">${meReady ? '参加をやめる(観戦する)' : '次のゲームに参加する'}</button>
+           <p class="muted center-text">${meReady ? `ホスト(${esc(host?.name || '?')})の開始を待っています…` : '参加するなら上のボタンを押してください'}</p>`}
+      <button class="btn wide" data-act="share">招待URLを送る</button>
       ${!ctrl.isHost && hostAway ? '<button class="btn wide" data-act="takeHost">ホストを引き継ぐ</button>' : ''}
       <button class="btn ghost wide" data-act="leave">部屋を出る</button>
     </div>`;
   el.onclick = async (e) => {
-    const act = e.target.closest('[data-act]')?.dataset.act;
+    const btn = e.target.closest('[data-act]');
+    const act = btn?.dataset.act;
     if (!act) return;
     sound.unlock();
     try {
       if (act === 'rules') openRules();
       if (act === 'share') share();
+      if (act === 'result') showResult();
+      if (act === 'ready') await ctrl.setReady(!meReady);
+      if (act === 'kick') await ctrl.removePlayer(btn.dataset.uid);
       if (act === 'start') await ctrl.startGame();
       if (act === 'takeHost') await ctrl.takeHost();
       if (act === 'leave') {
@@ -305,10 +337,10 @@ function renderLobby() {
 
 async function share() {
   const url = inviteUrl();
-  const text = `大富豪しよう!部屋コード ${ctrl.room?.meta?.code}`;
+  const text = `16組大富豪オンラインで遊ぼう!部屋コード ${ctrl.room?.meta?.code}`;
   if (navigator.share) {
     try {
-      await navigator.share({ title: '大富豪', text, url });
+      await navigator.share({ title: '16組大富豪オンライン', text, url });
       return;
     } catch (e) {
       if (e.name === 'AbortError') return;
@@ -329,14 +361,6 @@ function showGame() {
   app.innerHTML = '<div class="game-root"></div>';
   view = new GameView(app.querySelector('.game-root'), ctrl, settings, {
     openRules, openMenu, saveSettings, showResult,
-    startNext: async () => {
-      try {
-        closeModal(true);
-        await ctrl.startGame();
-      } catch (e) {
-        toast(e.message);
-      }
-    },
   });
 }
 
@@ -358,33 +382,23 @@ function showResult() {
         })
         .join('')}
     </ol>
-    ${ctrl.isHost
-      ? `<p class="muted small">次のゲームの参加者:${ctrl.seatedForNextGame().map((p) => esc(p.name)).join('、')}</p>
-         <button class="btn primary wide big" data-act="next">次のゲームへ</button>
-         <button class="btn ghost wide" data-act="lobby">待合室に戻る</button>`
-      : '<p class="muted center-text">ホストが次のゲームを始めるのを待っています</p>'}
-    <button class="btn ghost wide" data-act="close">テーブルを見る</button>`;
-  body.onclick = async (e) => {
-    const act = e.target.closest('[data-act]')?.dataset.act;
-    try {
-      if (act === 'next') {
-        closeModal(true);
-        await ctrl.startGame();
-      }
-      if (act === 'lobby') {
-        closeModal(true);
-        await ctrl.backToLobby();
-      }
-      if (act === 'close') closeModal();
-    } catch (err) {
-      toast(err.message);
-    }
+    <p class="muted small">次のゲームは待合室で「参加する」を押した人で始めます。</p>
+    <button class="btn primary wide big" data-act="close">待合室へ</button>`;
+  body.onclick = (e) => {
+    if (e.target.closest('[data-act=close]')) closeModal();
   };
   openModal(body);
 }
 
 function openRules() {
-  openModal(`<div class="rules">${RULES_HTML}</div>`);
+  const modal = openModal(`<div class="rules">${RULES_HTML}</div>`);
+  modal.addEventListener('click', (e) => {
+    const id = e.target.closest('[data-jump]')?.dataset.jump;
+    if (!id) return;
+    const sec = modal.querySelector('#' + id);
+    sec?.querySelector('details')?.setAttribute('open', '');
+    sec?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
 }
 
 function openMenu() {
@@ -401,7 +415,7 @@ function openMenu() {
     </div>
     <button class="btn wide" data-act="share">招待URLを送る</button>
     ${!ctrl.isHost && hostAway ? '<button class="btn wide" data-act="takeHost">ホストを引き継ぐ</button>' : ''}
-    ${ctrl.isHost && ctrl.game?.status === 'result' ? '<button class="btn wide" data-act="lobby">待合室に戻る</button>' : ''}
+    ${ctrl.isHost && ctrl.inGame ? '<button class="btn wide" data-act="abort">ゲームを中止して待合室へ</button>' : ''}
     <button class="btn ghost wide" data-act="leave">部屋を出る</button>
     <p class="muted small">ゲーム中に部屋を出ても席は残ります。同じURLから戻れます。</p>`;
   body.querySelector('[name=sort]').value = settings.sort;
@@ -425,7 +439,8 @@ function openMenu() {
         await ctrl.takeHost();
         closeModal();
       }
-      if (act === 'lobby') {
+      if (act === 'abort') {
+        if (!confirm('このゲームを中止して待合室に戻りますか?(ポイントは付きません)')) return;
         closeModal();
         await ctrl.backToLobby();
       }

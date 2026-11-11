@@ -1,10 +1,10 @@
 // ゲーム進行(状態遷移)。通信から独立した純粋関数。
 // applyAction(game, uid, action, myHand) は「自分の手札」と公開状態だけから次の状態を作る。
 // 他人の手札は読まない:7渡し・交換は受け箱(inbox)へ、12ボンバーは各自が自分の手札に適用する。
-import { makeDeck, shuffle, strongest, strengthKey, parseCard, rankFromChar, rankChar, MAX_PASS, RANK_CHARS } from './cards.js';
+import { makeDeck, shuffle, strongest, strengthKey, parseCard, rankFromChar, rankChar, RANK_CHARS } from './cards.js';
 import {
   interpretations, canPlay, effectsOf, direction, suitLockFormed, isNumberStep,
-  noNextNumber, isJokerSingle, hasLegalPlay,
+  noNextNumber, isJokerSingle,
 } from './rules.js';
 
 export class RuleError extends Error {}
@@ -41,7 +41,6 @@ export function normalizeGame(raw) {
   g.lastBy = g.lastBy || null;
   g.turn = g.turn || null;
   g.passed = g.passed || {};
-  g.passesUsed = g.passesUsed || {};
   g.handCount = g.handCount || {};
   for (const u of g.order) g.handCount[u] = g.handCount[u] || 0;
   const e = g.effects || {};
@@ -292,7 +291,7 @@ export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = 
   const prevDaifugo = gameNo > 1 ? titleOf('daifugo') : null;
   const game = {
     seq: seq + 1, actor, status: hasExchange ? 'exchange' : 'playing', gameNo, order: [...order],
-    first, turn: hasExchange ? null : first, field: [], lastBy: null, passed: {}, passesUsed: {}, handCount,
+    first, turn: hasExchange ? null : first, field: [], lastBy: null, passed: {}, handCount,
     effects: { revolution: false, elevenBack: false, suitLock: null, numberLock: false },
     pending: null, bombApply: null, resolve: null, finished: [], ochi: null,
     prevTitles: { ...prevTitles }, prevDaifugo, exchange: hasExchange ? exchange : null,
@@ -389,15 +388,9 @@ export function applyAction(game0, uid, action, hand0, { isHost = false } = {}) 
         g.turn = nextActiveFrom(g, who) || who;
         break;
       }
-      let counted = false;
-      if (action.type === 'pass') {
-        needMine();
-        counted = hasLegalPlay(hand, top(g), g.effects);
-        if (counted && (g.passesUsed[uid] || 0) >= MAX_PASS) err('パスの回数を使い切りました。出せるカードを出してください');
-        if (counted) g.passesUsed[uid] = (g.passesUsed[uid] || 0) + 1;
-      }
+      // パスは回数制限なし(出せるカードがあっても選べる)
       g.passed[who] = true;
-      g.events.push({ t: 'pass', uid: who, counted, forced: action.type === 'forcePass' });
+      g.events.push({ t: 'pass', uid: who, forced: action.type === 'forcePass' });
       const w = walk(g, who, 1);
       if (w.flow) flow(g, leaderAfter(g, g.lastBy), 'round');
       else g.turn = w.landed;
@@ -507,10 +500,7 @@ export function fieldTop(g) {
 export function canPassNow(g, uid, hand) {
   if (!g || g.status !== 'playing' || g.turn !== uid || g.pending || g.bombApply) return { ok: false };
   if (g.field.length === 0) return { ok: false, reason: '親はパスできません' };
-  const counted = hasLegalPlay(hand, top(g), g.effects);
-  const left = MAX_PASS - (g.passesUsed[uid] || 0);
-  if (counted && left <= 0) return { ok: false, reason: 'パスの回数を使い切りました', left, counted };
-  return { ok: true, left, counted };
+  return { ok: true };
 }
 
 export { rankChar };
