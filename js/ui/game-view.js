@@ -262,7 +262,7 @@ export class GameView {
     const host = this.ctrl.hostUid === u ? '<span class="host-mark" title="ホスト">★</span>' : '';
     return `<div class="seat${turn ? ' turn' : ''}${p.online === false ? ' offline' : ''}${place >= 0 || g.ochi === u ? ' done' : ''}" data-uid="${esc(u)}" style="left:${x}%;top:clamp(${landscape ? 40 : 50}px, ${y}%, calc(100% - 40px))">
       <div class="seat-fan">${fan}${count ? `<span class="seat-count">×${count}</span>` : ''}</div>
-      <div class="seat-name">${host}${esc(p.name || '?')}</div>
+      <div class="seat-name">${host}${p.cpu ? '<span class="cpu-mark" title="CPU">🤖</span>' : ''}${esc(p.name || '?')}</div>
       <div class="seat-tags">${tags.join('')}</div>
       ${placeBadge}
     </div>`;
