@@ -38,6 +38,8 @@ python3 -m http.server 8080
 2. `main` ブランチに push すると [`.github/workflows/pages.yml`](.github/workflows/pages.yml) がテストを実行してから公開します
 3. 公開URL:`https://<GitHubユーザー名>.github.io/daifugo/`
 
+公開時に各ファイルへ版番号を付けるので、古いファイルと新しいファイルが混ざることはありません([`scripts/stamp-version.mjs`](scripts/stamp-version.mjs))。開いたままの画面には「新しいバージョンがあります」と出るので、再読み込みすると反映されます。
+
 Firebase Hosting で配信したい場合は `npx firebase deploy --only hosting` でも公開できます([`firebase.json`](firebase.json) 設定済み)。
 
 ## 遊び方

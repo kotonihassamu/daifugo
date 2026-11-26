@@ -493,4 +493,30 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') keepAwake();
 });
 
+// ---------- 新しいバージョンのお知らせ ----------
+// 公開時に index.html へ版を埋め込む(scripts/stamp-version.mjs)。開いたままの画面でも更新に気づけるようにする
+const APP_VERSION = document.querySelector('meta[name=app-version]')?.content || null;
+let updateShown = false;
+async function checkUpdate() {
+  if (!APP_VERSION || updateShown) return;
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    const { version } = await res.json();
+    if (version && version !== APP_VERSION) {
+      updateShown = true;
+      const bar = document.createElement('div');
+      bar.className = 'update-bar';
+      bar.innerHTML = '<span>新しいバージョンがあります</span><button class="btn small">再読み込み</button>';
+      bar.querySelector('button').onclick = () => location.reload();
+      document.body.appendChild(bar);
+    }
+  } catch { /* オフラインなど */ }
+}
+if (APP_VERSION) {
+  setInterval(checkUpdate, 3 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkUpdate();
+  });
+}
+
 boot();

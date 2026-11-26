@@ -371,6 +371,13 @@ button { font: inherit; }
 .rules details summary::-webkit-details-marker { display: none; }
 .rules details summary h3::after { content: "▼ ひらく"; margin-left: auto; font-size: 11px; color: var(--muted); }
 .rules details[open] summary h3::after { content: "▲ とじる"; }
+/* 新しいバージョンのお知らせ */
+.update-bar {
+  position: fixed; left: 50%; top: calc(8px + var(--safe-t)); transform: translateX(-50%); z-index: 130;
+  display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; border-radius: 999px;
+  background: rgba(20,20,20,.92); color: #fff; font-size: 14px; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,.35); white-space: nowrap;
+}
+.update-bar .btn { min-height: 34px; }
 #toast {
   position: fixed; left: 50%; bottom: calc(96px + var(--safe-b)); transform: translate(-50%, 20px); opacity: 0;
   background: rgba(20,20,20,.92); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px; z-index: 120;
@@ -410,7 +417,14 @@ button { font: inherit; }
   .side-badges { display: flex; position: absolute; right: -126px; top: 64px; width: 116px; flex-direction: column; align-items: stretch; gap: 4px; z-index: 4; }
   .side-badges .badge { text-align: center; }
   .status-line { left: auto; right: -126px; top: 6px; bottom: auto; width: 116px; transform: none; font-size: 12px; flex-direction: column; align-items: stretch; }
-  #toast { bottom: calc(40px + var(--safe-b)); }
+  /* 新しいバージョンのお知らせ */
+.update-bar {
+  position: fixed; left: 50%; top: calc(8px + var(--safe-t)); transform: translateX(-50%); z-index: 130;
+  display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 14px; border-radius: 999px;
+  background: rgba(20,20,20,.92); color: #fff; font-size: 14px; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,.35); white-space: nowrap;
+}
+.update-bar .btn { min-height: 34px; }
+#toast { bottom: calc(40px + var(--safe-b)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
