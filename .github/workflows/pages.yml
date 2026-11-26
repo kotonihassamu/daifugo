@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   test:
@@ -24,14 +24,15 @@ jobs:
           node-version: 22
       - run: npm test
 
-  deploy:
+  # 公開用のファイルを作ってアップロードする
+  build:
     needs: test
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Collect site files
         run: |
           mkdir _site
@@ -42,5 +43,14 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+
+  # アップロードとは別のジョブで公開する(同じジョブだとアップロード直後に見つからず失敗することがあるため)
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - id: deployment
         uses: actions/deploy-pages@v4
