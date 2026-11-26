@@ -36,6 +36,8 @@ jobs:
         run: |
           mkdir _site
           cp -r index.html css js .nojekyll _site/
+      - name: Stamp version (cache busting)
+        run: node scripts/stamp-version.mjs _site "${GITHUB_SHA::7}"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

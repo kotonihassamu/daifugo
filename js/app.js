@@ -310,6 +310,12 @@ function renderLobby() {
           ? `<div class="seg">${[0, 1, 2].map((n) => `<button class="${ctrl.settings.jokers === n ? 'on' : ''}" data-act="jokers" data-n="${n}">${n}枚</button>`).join('')}</div>`
           : `<b>${ctrl.settings.jokers}枚</b>`}
       </div>
+      <div class="setting-row">
+        <span class="setting-name">数字縛り</span>
+        ${ctrl.isHost
+          ? `<div class="seg">${[[true, 'あり'], [false, 'なし']].map(([v, l]) => `<button class="${ctrl.settings.numberLock === v ? 'on' : ''}" data-act="numberLock" data-v="${v}">${l}</button>`).join('')}</div>`
+          : `<b>${ctrl.settings.numberLock ? 'あり' : 'なし'}</b>`}
+      </div>
       <p class="muted small">そのほかのルールは「ルール」ボタンで確認できます。</p>
     </section>
     <div class="lobby-actions">
@@ -333,7 +339,8 @@ function renderLobby() {
       if (act === 'result') showResult();
       if (act === 'ready') await ctrl.setReady(!meReady);
       if (act === 'kick') await ctrl.removePlayer(btn.dataset.uid);
-      if (act === 'jokers') await ctrl.setJokers(Number(btn.dataset.n));
+      if (act === 'jokers') await ctrl.setRule('jokers', Number(btn.dataset.n));
+      if (act === 'numberLock') await ctrl.setRule('numberLock', btn.dataset.v === 'true');
       if (act === 'start') await ctrl.startGame();
       if (act === 'takeHost') await ctrl.takeHost();
       if (act === 'leave') {
@@ -492,5 +499,31 @@ function releaseWake() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') keepAwake();
 });
+
+// ---------- 新しいバージョンのお知らせ ----------
+// 公開時に index.html へ版を埋め込む(scripts/stamp-version.mjs)。開いたままの画面でも更新に気づけるようにする
+const APP_VERSION = document.querySelector('meta[name=app-version]')?.content || null;
+let updateShown = false;
+async function checkUpdate() {
+  if (!APP_VERSION || updateShown) return;
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    const { version } = await res.json();
+    if (version && version !== APP_VERSION) {
+      updateShown = true;
+      const bar = document.createElement('div');
+      bar.className = 'update-bar';
+      bar.innerHTML = '<span>新しいバージョンがあります</span><button class="btn small">再読み込み</button>';
+      bar.querySelector('button').onclick = () => location.reload();
+      document.body.appendChild(bar);
+    }
+  } catch { /* オフラインなど */ }
+}
+if (APP_VERSION) {
+  setInterval(checkUpdate, 3 * 60 * 1000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') checkUpdate();
+  });
+}
 
 boot();

@@ -40,7 +40,7 @@ export function normalizeGame(raw) {
   const jr = (v) => (v == null ? [] : typeof v === 'number' ? [v] : toArray(v));
   g.field = toArray(g.field).map((e) => ({ ...e, cards: toArray(e.cards), jr: jr(e.jr) }));
   g.leadPasses = g.leadPasses || 0;
-  g.rules = { jokers: DEFAULT_JOKERS, ...(g.rules || {}) };
+  g.rules = { jokers: DEFAULT_JOKERS, numberLock: true, ...(g.rules || {}) };
   g.lastBy = g.lastBy || null;
   g.turn = g.turn || null;
   g.passed = g.passed || {};
@@ -235,7 +235,7 @@ function startPlay(g) {
 
 // ---------- 配札 ----------
 // order: 席順(時計回り)の uid 配列, prevTitles: { uid: 前ゲームの称号 }
-export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = null, rng = Math.random, jokers = DEFAULT_JOKERS }) {
+export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = null, rng = Math.random, jokers = DEFAULT_JOKERS, numberLock = true }) {
   const n = order.length;
   if (n < 2) err('2人以上必要です');
   const deck = shuffle(makeDeck(jokers), rng);
@@ -302,7 +302,7 @@ export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = 
     pending: null, bombApply: null, resolve: null, finished: [], ochi: null,
     prevTitles: { ...prevTitles }, prevDaifugo, exchange: hasExchange ? exchange : null,
     events: [{ t: 'deal' }, ...(hasExchange ? [] : [{ t: 'start', uid: first }])], result: null,
-    leadPasses: 0, rules: { jokers: Math.max(0, Math.min(2, jokers)) },
+    leadPasses: 0, rules: { jokers: Math.max(0, Math.min(2, jokers)), numberLock: numberLock !== false },
   };
   return { game, hands, inbox };
 }
@@ -366,7 +366,8 @@ export function applyAction(game0, uid, action, hand0, { isHost = false } = {}) 
           const lock = suitLockFormed(t, combo);
           if (lock) { g.effects.suitLock = lock; ev.fx.push('suitLock'); }
         }
-        if (!g.effects.numberLock && isNumberStep(t, combo, dirBefore)) {
+        // 数字縛りは部屋の設定でなしにできる
+        if (g.rules?.numberLock !== false && !g.effects.numberLock && isNumberStep(t, combo, dirBefore)) {
           g.effects.numberLock = true;
           ev.fx.push('numberLock');
         }

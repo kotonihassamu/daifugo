@@ -23,8 +23,9 @@ const tile = (rank, name, what, chips, tone) => `
   </div>`;
 
 // cfg: 部屋のルール設定 { jokers }
-export function rulesHtml(cfg = { jokers: 2 }) {
+export function rulesHtml(cfg = { jokers: 2, numberLock: true }) {
   const jk = cfg.jokers;
+  const nl = cfg.numberLock !== false;
   return `
 <h2>ルール</h2>
 <nav class="rules-nav">
@@ -47,6 +48,7 @@ export function rulesHtml(cfg = { jokers: 2 }) {
     <li><b>階段の革命は同じマークだけ</b>:マークが混ざった階段では起きない</li>
     <li><b>禁止上がりあり</b>:最後の1手に 2(革命中は3)・ジョーカー・8・スペ3返し は使えない</li>
     <li><b>ジョーカーは${jk}枚</b>${jk === 0 ? '(なし)' : ''}:ホストが待合室で 0〜2枚 から選べる</li>
+    <li><b>数字縛りは${nl ? 'あり' : 'なし'}</b>:ホストが待合室で選べる</li>
     <li><b>パスは何回でもOK</b>:パスしても次の手番では出せる</li>
     <li><b>都落ちあり</b>:前回の大富豪が1位を逃したら即大貧民</li>
   </ul>
@@ -94,7 +96,7 @@ export function rulesHtml(cfg = { jokers: 2 }) {
     <p class="note">ジョーカーはどのマークの代わりにもなれます。</p>
   </div>
   <div class="rule-card">
-    <h4>数字縛り:<em>1つ強い数字</em>を続けて出したら成立</h4>
+    <h4>数字縛り:<em>1つ強い数字</em>を続けて出したら成立 <span class="chip ${nl ? '' : 'no'}">この部屋は${nl ? 'あり' : 'なし'}</span></h4>
     ${ex(cs('S5'), cs('H6'), OK, '縛り成立。次は <b>7だけ</b>、その次は8だけ…')}
     ${ex(cs('S5', 'S6', 'S7'), cs('H6', 'H7', 'H8'), OK, '階段も同じ。次は 7-8-9 だけ')}
     <p class="note">次の数字がない(2の次など)ときは、ジョーカーだけの手しか出せません。出せない人がパスして一周すると流れます。<br>マーク縛りと数字縛りは同時にかかることもあります。</p>
