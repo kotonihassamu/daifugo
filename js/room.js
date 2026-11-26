@@ -99,7 +99,8 @@ export class RoomController extends EventTarget {
     }
   }
 
-  async join(roomId, name) {
+  // opts.cpu: CPU として参加する(PC で動く CPU プログラムから)
+  async join(roomId, name, opts = {}) {
     if (this.b.kind === 'local' && !(await this.b.get(`rooms/${roomId}/meta`))) throw new Error('部屋が見つかりません');
     let me = null;
     try {
@@ -107,10 +108,10 @@ export class RoomController extends EventTarget {
     } catch { /* 権限なし=未参加 */ }
     try {
       if (me) {
-        await this.b.update({ [`rooms/${roomId}/players/${this.uid}/name`]: name, [`rooms/${roomId}/players/${this.uid}/online`]: true });
+        await this.b.update({ [`rooms/${roomId}/players/${this.uid}/name`]: name, [`rooms/${roomId}/players/${this.uid}/online`]: true, ...(opts.cpu ? { [`rooms/${roomId}/players/${this.uid}/cpu`]: true } : {}) });
       } else {
         await this.b.update({
-          [`rooms/${roomId}/players/${this.uid}`]: { name, joinedAt: this.b.serverTime(), online: true, points: 0 },
+          [`rooms/${roomId}/players/${this.uid}`]: { name, joinedAt: this.b.serverTime(), online: true, points: 0, ...(opts.cpu ? { cpu: true } : {}) },
         });
       }
     } catch (e) {
@@ -149,6 +150,7 @@ export class RoomController extends EventTarget {
         this.game = g;
         this.emit('room', { prev, game: g });
         this.scheduleTick();
+        if (this.isHost) this.checkCpuProxy();
       }, (e) => this.emit('error', e)),
     );
     this.subs.push(
@@ -184,7 +186,9 @@ export class RoomController extends EventTarget {
       } else {
         const paths = { [`rooms/${rid}/players/${this.uid}`]: null };
         if (this.isHost) {
-          const next = this.players.find((p) => p.uid !== this.uid && p.online) || this.players.find((p) => p.uid !== this.uid);
+          // ホストは人に引き継ぐ(CPU にはしない)
+          const others = this.players.filter((p) => p.uid !== this.uid);
+          const next = others.find((p) => !p.cpu && p.online) || others.find((p) => !p.cpu) || others[0];
           if (next) paths[`rooms/${rid}/meta/hostUid`] = next.uid;
         }
         await this.b.update(paths);
@@ -359,6 +363,43 @@ export class RoomController extends EventTarget {
       this.busy = false;
       if (again) this.scheduleTick(200 + Math.random() * 400);
     }
+  }
+
+  // ---------- 切断した CPU の代わりに進める(ホストの画面で実行) ----------
+  // CPU を動かしている PC が落ちてもゲームが止まらないよう、3秒待ってから代わりにパス・スキップする
+  cpuProxyAction(g) {
+    const off = (u) => {
+      const p = this.player(u);
+      return !!p && p.online === false;
+    };
+    const offCpu = (u) => off(u) && !!this.player(u)?.cpu;
+    if (!g) return null;
+    if (g.status === 'exchange') {
+      return Object.entries(g.exchange || {}).some(([u, x]) => !x.done && offCpu(u)) ? { type: 'skipExchange' } : null;
+    }
+    if (g.status !== 'playing') return null;
+    if (g.bombApply) {
+      const w = Object.keys(g.bombApply.waiting);
+      // 待っている全員が切断中で、そのうち CPU がいるときだけ
+      return w.length && w.every(off) && w.some(offCpu) ? { type: 'skipBombWait' } : null;
+    }
+    if (g.pending) return offCpu(g.pending.uid) ? { type: 'skipPending' } : null;
+    return offCpu(g.turn) ? { type: 'forcePass' } : null;
+  }
+
+  checkCpuProxy() {
+    const action = this.cpuProxyAction(this.game);
+    if (!action) return;
+    const key = `${this.game.seq}:${action.type}`;
+    if (this.cpuProxyKey === key) return;
+    this.cpuProxyKey = key;
+    setTimeout(async () => {
+      const again = this.isHost && this.cpuProxyAction(this.game);
+      if (!again || `${this.game.seq}:${again.type}` !== key) return;
+      try {
+        await this.perform(again);
+      } catch { /* ほかの操作と重なったら次の更新でもう一度 */ }
+    }, 3000);
   }
 
   // ---------- 古い部屋の掃除(起動時) ----------

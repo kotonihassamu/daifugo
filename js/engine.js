@@ -40,6 +40,8 @@ export function normalizeGame(raw) {
   const jr = (v) => (v == null ? [] : typeof v === 'number' ? [v] : toArray(v));
   g.field = toArray(g.field).map((e) => ({ ...e, cards: toArray(e.cards), jr: jr(e.jr) }));
   g.leadPasses = g.leadPasses || 0;
+  // 全員に公開されたカード(出した・10捨て・ボンバーで捨てた)。CPUが残りのカードを推測するのに使う
+  g.seen = toArray(g.seen);
   g.rules = { jokers: DEFAULT_JOKERS, numberLock: true, ...(g.rules || {}) };
   g.lastBy = g.lastBy || null;
   g.turn = g.turn || null;
@@ -223,6 +225,7 @@ function applyBombToHand(g, uid, hand) {
   g.handCount[uid] = rest.length;
   delete g.bombApply.waiting[uid];
   g.events.push({ t: 'bombHit', uid, cards: hit });
+  (g.seen ||= []).push(...hit);
   return rest;
 }
 
@@ -302,7 +305,7 @@ export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = 
     pending: null, bombApply: null, resolve: null, finished: [], ochi: null,
     prevTitles: { ...prevTitles }, prevDaifugo, exchange: hasExchange ? exchange : null,
     events: [{ t: 'deal' }, ...(hasExchange ? [] : [{ t: 'start', uid: first }])], result: null,
-    leadPasses: 0, rules: { jokers: Math.max(0, Math.min(2, jokers)), numberLock: numberLock !== false },
+    leadPasses: 0, seen: [], rules: { jokers: Math.max(0, Math.min(2, jokers)), numberLock: numberLock !== false },
   };
   return { game, hands, inbox };
 }
@@ -349,6 +352,7 @@ export function applyAction(game0, uid, action, hand0, { isHost = false } = {}) 
       const ev = { t: 'play', uid, cards: [...cards], type: combo.type, size: combo.size, low: combo.low, jr: [...combo.jr], fx: [] };
       const spe3 = !!t && isJokerSingle(t) && combo.type === 'single' && combo.low === 3;
       g.field.push(entry);
+      (g.seen ||= []).push(...cards);
       g.lastBy = uid;
       delete g.passed[uid];
       const fx = effectsOf(combo);
@@ -434,6 +438,7 @@ export function applyAction(game0, uid, action, hand0, { isHost = false } = {}) 
         g.events.push({ t: 'give', uid, to: p.to, count: cards.length });
       } else {
         g.events.push({ t: 'discard', uid, cards: [...cards] });
+        (g.seen ||= []).push(...cards);
       }
       g.pending = null;
       if (hand.length === 0) finish(g, uid);

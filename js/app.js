@@ -293,9 +293,10 @@ function renderLobby() {
               <span class="dot ${off ? '' : 'on'}"></span>
               <span class="pname">${esc(p.name)}${p.uid === ctrl.uid ? '<span class="muted">(あなた)</span>' : ''}</span>
               ${isHost ? '<span class="host-mark">★ホスト</span>' : ''}
+              ${p.cpu ? '<span class="tag cpu">🤖CPU</span>' : ''}
               ${state}
               <span class="pts">${(p.points || 0) > 0 ? '+' : ''}${p.points || 0}pt</span>
-              ${ctrl.isHost && off && p.uid !== ctrl.uid ? `<button class="btn small ghost kick" data-act="kick" data-uid="${esc(p.uid)}">外す</button>` : ''}
+              ${ctrl.isHost && (off || p.cpu) && p.uid !== ctrl.uid ? `<button class="btn small ghost kick" data-act="kick" data-uid="${esc(p.uid)}">外す</button>` : ''}
             </li>`;
           })
           .join('')}

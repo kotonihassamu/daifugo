@@ -76,6 +76,8 @@ button { font: inherit; }
 .tag.pass { background: #e5e7eb; color: #374151; }
 .tag.off { background: #6b7280; color: #fff; }
 .tag.ok { background: #22c55e; color: #fff; }
+.tag.cpu { background: #e0e7ff; color: #3730a3; }
+.cpu-mark { margin-right: 2px; }
 .tag.gold { background: var(--gold); color: #3b2a05; }
 .t-daifugo { background: linear-gradient(#ffe08a, #f2b33d); color: #4a3200; }
 .t-fugo { background: #fde9b5; color: #6b4a00; }
