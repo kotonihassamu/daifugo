@@ -70,22 +70,24 @@ function faceArt(rank, suit, color) {
     <g fill="${color}">${pip(suit, 31.5, 66, 8)}</g>`;
 }
 
-function jokerSvg() {
+function jokerSvg(alt = false) {
+  // 2枚目のジョーカーは色違い
+  const ink = alt ? '#1d1f24' : '#7b1fa2', l = alt ? '#1d1f24' : RED, r = alt ? '#c4262e' : '#1e5bb8', m = alt ? '#1e5bb8' : '#2e7d32';
   const letters = 'JOKER'.split('').map((ch, i) => `<text x="7" y="${11 + i * 7.2}" text-anchor="middle" font-size="7" font-weight="700" font-family="Georgia, serif">${ch}</text>`).join('');
   return `
     <rect x="9" y="9" width="45" height="70" rx="4" fill="url(#jk-glow)"/>
-    <g fill="#7b1fa2">${letters}</g>
-    <g fill="#7b1fa2" transform="rotate(180 31.5 44)">${letters}</g>
+    <g fill="${ink}">${letters}</g>
+    <g fill="${ink}" transform="rotate(180 31.5 44)">${letters}</g>
     <g transform="translate(31.5 46)">
-      <path d="M-17 4Q-15 -13 -23 -20Q-7 -17 -1 -3Z" fill="${RED}"/>
-      <path d="M17 4Q15 -13 23 -20Q7 -17 1 -3Z" fill="#1e5bb8"/>
-      <path d="M-8 3Q-5 -20 0 -25Q5 -20 8 3Z" fill="#2e7d32"/>
+      <path d="M-17 4Q-15 -13 -23 -20Q-7 -17 -1 -3Z" fill="${l}"/>
+      <path d="M17 4Q15 -13 23 -20Q7 -17 1 -3Z" fill="${r}"/>
+      <path d="M-8 3Q-5 -20 0 -25Q5 -20 8 3Z" fill="${m}"/>
       <circle cx="-23" cy="-20" r="3" fill="#f2b705"/><circle cx="23" cy="-20" r="3" fill="#f2b705"/><circle cx="0" cy="-25" r="3" fill="#f2b705"/>
       <rect x="-18" y="2" width="36" height="5.5" rx="2.5" fill="#f2b705"/>
-      <circle cx="0" cy="16" r="10.5" fill="#fff" stroke="#7b1fa2" stroke-width="1"/>
+      <circle cx="0" cy="16" r="10.5" fill="#fff" stroke="${ink}" stroke-width="1"/>
       <circle cx="-3.8" cy="13.5" r="1.3" fill="#222"/><circle cx="3.8" cy="13.5" r="1.3" fill="#222"/>
       <path d="M-5 18.5Q0 23.5 5 18.5" fill="none" stroke="#c4262e" stroke-width="1.5" stroke-linecap="round"/>
-      <path d="M-17 30 0 27 17 30" fill="none" stroke="#7b1fa2" stroke-width="1.2"/>
+      <path d="M-17 30 0 27 17 30" fill="none" stroke="${ink}" stroke-width="1.2"/>
     </g>`;
 }
 
@@ -96,7 +98,7 @@ export function cardSvg(code) {
   const c = parseCard(code);
   let inner;
   if (c.joker) {
-    inner = jokerSvg();
+    inner = jokerSvg(code === 'JK2');
   } else {
     const color = c.suit === 'H' || c.suit === 'D' ? RED : BLACK;
     const label = rankLabel(c.rank);

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { applyAction, dealGame, normalizeGame, serializeGame, activePlayers, RuleError } from '../js/engine.js';
-import { legalPlays, interpretations } from '../js/rules.js';
+import { legalPlays, interpretations, canPlay, forbiddenFinish } from '../js/rules.js';
 import { makeDeck } from '../js/cards.js';
 
 // テスト用:全員の手札を持つ「神の視点」ハーネス
@@ -141,16 +141,79 @@ test('11バックは場が流れると戻る。革命中は打ち消し合う', 
   assert.equal(s.game.turn, 'b');
 });
 
-test('数字縛りと次がないときの自動流れ', () => {
-  const s = sim(['a', 'b', 'c'], { a: ['SA', 'S5'], b: ['H2', 'H6'], c: ['C3', 'C7'] });
-  s.game.field = [{ by: 'c', cards: ['CK'], type: 'single', size: 1, low: 13, jr: null }];
+test('数字縛りで次の数字がなくても、ジョーカーは出せる(すぐには流れない)', () => {
+  const s = sim(['a', 'b', 'c'], { a: ['SA', 'S5'], b: ['H2', 'H6'], c: ['JK1', 'C7'] });
+  s.game.field = [{ by: 'c', cards: ['CK'], type: 'single', size: 1, low: 13, jr: [] }];
   s.game.lastBy = 'c';
   act(s, 'a', { type: 'play', cards: ['SA'] });
   assert.equal(s.game.effects.numberLock, true);
   act(s, 'b', { type: 'play', cards: ['H2'] });
-  // 2の次はない → 流れて b から
+  // 以前はここで場が流れてしまい、ジョーカーを持つ c に番が来なかった
+  assert.equal(s.game.field.length, 3);
+  assert.equal(s.game.turn, 'c');
+  act(s, 'c', { type: 'play', cards: ['JK1'] });
+  assert.equal(s.game.turn, 'a');
+  // 出せない人がパスして一周すれば流れる
+  act(s, 'a', { type: 'pass' });
+  act(s, 'b', { type: 'pass' });
   assert.equal(s.game.field.length, 0);
+  assert.equal(s.game.turn, 'c');
+});
+
+test('禁止上がり:最後の1手に 2・ジョーカー・8・スペ3返し は出せない', () => {
+  const field = (cards, type = 'single', low) => [{ by: 'x', cards, type, size: cards.length, low, jr: [] }];
+  const blocked = (hand, play, over = {}) => {
+    const s = sim(['a', 'b'], { a: hand, b: ['C4', 'C9'] }, over);
+    assert.throws(() => act(s, 'a', { type: 'play', cards: play }), /禁止上がり/);
+  };
+  blocked(['H2'], ['H2']);
+  blocked(['S2', 'H2'], ['S2', 'H2']);
+  blocked(['JK1'], ['JK1']);
+  blocked(['H5', 'JK1'], ['H5', 'JK1']); // ペアの中のジョーカーも
+  blocked(['S8'], ['S8']);
+  blocked(['S6', 'S7', 'S8'], ['S6', 'S7', 'S8']); // 階段の中の8も
+  blocked(['S3'], ['S3'], { field: field(['JK1'], 'single', 16), lastBy: 'b' }); // スペ3返し
+  blocked(['H3'], ['H3'], { effects: { revolution: true } }); // 革命中は3
+  // 上がれる例
+  const ok = (hand, play, over = {}) => {
+    const s = sim(['a', 'b'], { a: hand, b: ['C4', 'C9'] }, over);
+    act(s, 'a', { type: 'play', cards: play });
+    assert.deepEqual(s.game.finished.slice(0, 1), ['a']);
+  };
+  ok(['H2'], ['H2'], { effects: { revolution: true } }); // 革命中の2はOK
+  ok(['H3'], ['H3'], { effects: { elevenBack: true } }); // 11バック中の3はOK
+  ok(['S3'], ['S3']); // 親で♠3を出して上がるのはOK
+  // 最後の1手でなければ出せる
+  const s = sim(['a', 'b'], { a: ['H2', 'H5'], b: ['C4', 'C9'] });
+  act(s, 'a', { type: 'play', cards: ['H2'] });
+  assert.equal(s.game.handCount.a, 1);
+});
+
+test('禁止上がり:7渡し・10捨て・ボンバーで手札がなくなるのは普通の上がり', () => {
+  const s = sim(['a', 'b', 'c'], { a: ['S7', 'H2'], b: ['C4', 'C9'], c: ['D4', 'D9'] });
+  act(s, 'a', { type: 'play', cards: ['S7'] });
+  act(s, 'a', { type: 'seven', cards: ['H2'] });
+  assert.deepEqual(s.game.finished, ['a']);
+});
+
+test('禁止カードしか残っていない親はパスでき、親が次の人に移る', () => {
+  const s = sim(['a', 'b', 'c'], { a: ['H2'], b: ['C4', 'C9'], c: ['D4', 'D9'] });
+  assert.equal(legalPlays(['H2'], null, {}).any, false);
+  act(s, 'a', { type: 'pass' });
   assert.equal(s.game.turn, 'b');
+  assert.equal(s.game.field.length, 0);
+  // 出せる手がある親はパスできない
+  assert.throws(() => act(s, 'b', { type: 'pass' }), RuleError);
+});
+
+test('残った全員が禁止カードしかないときは、そこで終了(席順)', () => {
+  // 2枚以上あれば上がらない1枚が出せるので、詰むのは最後の1枚が禁止カードのときだけ
+  const s = sim(['a', 'b', 'c'], { a: ['H2'], b: ['JK1'], c: [] }, { finished: ['c'] });
+  act(s, 'a', { type: 'pass' });
+  assert.equal(s.game.status, 'playing');
+  act(s, 'b', { type: 'pass' });
+  assert.equal(s.game.status, 'result');
+  assert.deepEqual(s.game.result.ranking, ['c', 'a', 'b']);
 });
 
 test('マーク縛りは場が流れたら解除', () => {
@@ -162,7 +225,7 @@ test('マーク縛りは場が流れたら解除', () => {
   assert.equal(s.game.effects.numberLock, true);
   assert.throws(() => act(s, 'b', { type: 'play', cards: ['D2', 'C2'] }), RuleError);
   act(s, 'b', { type: 'play', cards: ['H2', 'S2'] });
-  // 2の次の数字はないので自動で流れる
+  act(s, 'a', { type: 'pass' }); // 出せないのでパス → 一周して流れる
   assert.equal(s.game.effects.suitLock, null);
   assert.equal(s.game.turn, 'b');
 });
@@ -227,10 +290,12 @@ test('7渡しの相手が上がっていたら次の人', () => {
 test('配札の枚数とダイヤの3', () => {
   for (let n = 2; n <= 8; n++) {
     const order = Array.from({ length: n }, (_, i) => 'p' + i);
-    const { game, hands } = dealGame({ order });
+    const jokers = n % 3; // 0〜2枚を順に試す
+    const { game, hands } = dealGame({ order, jokers });
     const counts = order.map((u) => hands[u].length);
     const total = counts.reduce((a, b) => a + b, 0);
-    assert.equal(total, n === 2 ? 40 : 53);
+    assert.equal(total, n === 2 ? 40 : 52 + jokers);
+    assert.equal(game.rules.jokers, jokers);
     if (n >= 3) {
       assert.ok(hands[game.first].includes('D3'));
       assert.equal(hands[game.first].length, Math.max(...counts));
@@ -265,10 +330,10 @@ function rng(seed) {
   let x = seed >>> 0 || 1;
   return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 4294967296);
 }
-function randomGame(n, seed, gameNo = 1, prevTitles = {}) {
+function randomGame(n, seed, gameNo = 1, prevTitles = {}, jokers = 2) {
   const r = rng(seed);
   const order = Array.from({ length: n }, (_, i) => 'p' + i);
-  const d = dealGame({ order, rng: r, gameNo, prevTitles });
+  const d = dealGame({ order, rng: r, gameNo, prevTitles, jokers });
   const s = { game: normalizeGame(d.game), hands: d.hands, events: [] };
   for (const u of order) for (const it of d.inbox[u] || []) if (it.kind === 'cards') s.hands[u].push(...it.cards);
   const pick = (a) => a[Math.floor(r() * a.length)];
@@ -299,7 +364,8 @@ function randomGame(n, seed, gameNo = 1, prevTitles = {}) {
     const lp = legalPlays(s.hands[u], top, g.effects);
     if (lp.any && (r() < 0.8 || g.field.length === 0)) {
       const cards = pick(lp.plays);
-      const opts = interpretations(cards);
+      const fin = cards.length === s.hands[u].length;
+      const opts = interpretations(cards).filter((o) => canPlay(o, top, g.effects) && !(fin && forbiddenFinish(o, top, g.effects)));
       act(s, u, { type: 'play', cards, interp: pick(opts).key });
     } else {
       act(s, u, { type: 'pass' });
@@ -315,9 +381,10 @@ test('ランダム対戦(2〜8人 × 多数)', () => {
   let seed = 1;
   for (let n = 2; n <= 8; n++) {
     for (let k = 0; k < 40; k++) {
-      const s = randomGame(n, seed++);
+      const jokers = k % 3;
+      const s = randomGame(n, seed++, 1, {}, jokers);
       const titles = s.game.result.titles;
-      randomGame(n, seed++, 2, titles);
+      randomGame(n, seed++, 2, titles, jokers);
     }
   }
 });
@@ -327,5 +394,7 @@ test('Firebaseの往復で状態が壊れない', () => {
   const g = normalizeGame(JSON.parse(JSON.stringify(d.game)));
   assert.deepEqual(g.field, []);
   assert.equal(activePlayers(g).length, 3);
-  assert.equal(makeDeck().length, 53);
+  assert.equal(makeDeck().length, 54);
+  assert.equal(makeDeck(0).length, 52);
+  assert.equal(makeDeck(1).length, 53);
 });

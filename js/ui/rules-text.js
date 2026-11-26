@@ -22,11 +22,15 @@ const tile = (rank, name, what, chips, tone) => `
     <div class="fx-chips">${chips.map((x) => `<span class="chip ${x.startsWith('×') ? 'no' : ''}">${x}</span>`).join('')}</div>
   </div>`;
 
-export const RULES_HTML = `
+// cfg: 部屋のルール設定 { jokers }
+export function rulesHtml(cfg = { jokers: 2 }) {
+  const jk = cfg.jokers;
+  return `
 <h2>ルール</h2>
 <nav class="rules-nav">
   <button data-jump="r-point">この部屋の特徴</button>
   <button data-jump="r-fx">効果</button>
+  <button data-jump="r-ban">禁止上がり</button>
   <button data-jump="r-lock">縛り</button>
   <button data-jump="r-rev">革命</button>
   <button data-jump="r-order">処理順</button>
@@ -41,8 +45,10 @@ export const RULES_HTML = `
     <li><b>効果はすべて強制</b>:条件を満たすと必ず発動(選べない)</li>
     <li><b>縛りは「完全一致」だけ</b>:片縛りはなし</li>
     <li><b>階段の革命は同じマークだけ</b>:マークが混ざった階段では起きない</li>
+    <li><b>禁止上がりあり</b>:最後の1手に 2(革命中は3)・ジョーカー・8・スペ3返し は使えない</li>
+    <li><b>ジョーカーは${jk}枚</b>${jk === 0 ? '(なし)' : ''}:ホストが待合室で 0〜2枚 から選べる</li>
     <li><b>パスは何回でもOK</b>:パスしても次の手番では出せる</li>
-    <li><b>都落ちあり・反則上がりなし</b>:何で上がってもOK</li>
+    <li><b>都落ちあり</b>:前回の大富豪が1位を逃したら即大貧民</li>
   </ul>
 </section>
 
@@ -61,6 +67,24 @@ export const RULES_HTML = `
   <p class="note">7渡し・10捨てで手札が0枚になったら、その時点で上がりです。</p>
 </section>
 
+<section id="r-ban" class="rule-sec">
+  <h3>禁止上がり(最後の1手に使えないカード)</h3>
+  <div class="ban-grid">
+    <div class="ban"><span class="fx-rank">2</span><span><b>2</b><small>革命中は2ではなく<b>3</b>が禁止</small></span></div>
+    <div class="ban"><span class="fx-rank jkr">JK</span><span><b>ジョーカー</b><small>ペアや階段の中で使っても×</small></span></div>
+    <div class="ban"><span class="fx-rank">8</span><span><b>8</b><small>8切りになる手(階段の中の8も)</small></span></div>
+    <div class="ban"><span class="fx-rank">♠3</span><span><b>スペ3返し</b><small>ジョーカーに♠3を出す手</small></span></div>
+  </div>
+  <ul>
+    <li>これらが入った手で<b>最後の1手を出すことはできません</b>(出すボタンが押せなくなります)</li>
+    <li>最後でなければ普通に出せます。上がる前に先に出しておきましょう</li>
+    <li>11バック中は変わらず2が禁止で、3で上がるのはOK</li>
+    <li>7渡し・10捨て・12ボンバーで手札がなくなるのは普通の上がり</li>
+    <li>親のときに出せる手がない(最後の1枚が禁止カード)ならパスでき、親は次の人に移ります</li>
+    <li>残った全員がそうなったら、そこでゲーム終了(残った人は席順に順位)</li>
+  </ul>
+</section>
+
 <section id="r-lock" class="rule-sec">
   <h3>縛り(場が流れたら解除)</h3>
   <div class="rule-card">
@@ -73,7 +97,7 @@ export const RULES_HTML = `
     <h4>数字縛り:<em>1つ強い数字</em>を続けて出したら成立</h4>
     ${ex(cs('S5'), cs('H6'), OK, '縛り成立。次は <b>7だけ</b>、その次は8だけ…')}
     ${ex(cs('S5', 'S6', 'S7'), cs('H6', 'H7', 'H8'), OK, '階段も同じ。次は 7-8-9 だけ')}
-    <p class="note">次の数字がない(2の次など)ときは、誰も出せず場が流れます。<br>マーク縛りと数字縛りは同時にかかることもあります。</p>
+    <p class="note">次の数字がない(2の次など)ときは、ジョーカーだけの手しか出せません。出せない人がパスして一周すると流れます。<br>マーク縛りと数字縛りは同時にかかることもあります。</p>
   </div>
 </section>
 
@@ -114,20 +138,23 @@ export const RULES_HTML = `
 </section>
 
 <section id="r-joker" class="rule-sec">
-  <h3>ジョーカー(1枚)</h3>
+  <h3>ジョーカー(この部屋は${jk}枚)</h3>
+  ${jk === 0 ? '<p class="note">この部屋はジョーカーなしで遊びます(ホストが待合室で変更できます)。</p>' : ''}
   <ul class="point-list">
-    <li><b>単体では最強</b>。革命中も最強。勝てるのは ${c('S3')} だけ(スペ3返し)</li>
+    <li><b>単体では最強</b>。革命中も最強。勝てるのは ${c('S3')} だけ(スペ3返し)。ジョーカーにジョーカーは出せない</li>
+    <li><b>ジョーカー2枚だけのペアは最強のペア</b>(2枚の部屋のみ)。これに勝てる手はない</li>
     <li>ペアや階段では<b>どのカードの代わりにも</b>なれる</li>
     <li>代わりにした数字の<b>効果も発動</b>(例:${cs('S9')}+JOKER+${cs('SJ')} でJOKERを10にすると10捨て)</li>
     <li>マーク縛り中は、縛りのマークとして使える</li>
-    <li>12ボンバーで「ジョーカー」を指定すると、持っている人の手札から消える</li>
+    <li>12ボンバーで「ジョーカー」を指定すると、持っている人の手札から全部消える</li>
+    <li>最後の1手には使えない(禁止上がり)</li>
   </ul>
 </section>
 
 <section id="r-other" class="rule-sec">
   <h3>その他の細かいルール</h3>
   <table class="rule-table">
-    <tr><th>パス</th><td>回数の制限なし。場が空のとき(親)はパスできない</td></tr>
+    <tr><th>パス</th><td>回数の制限なし。場が空のとき(親)は、出せる手がないときだけパスできる</td></tr>
     <tr><th>場が流れる</th><td>最後に出した人以外が続けてパス → 最後に出した人から。その人が上がっていたら次の人から</td></tr>
     <tr><th>5スキップ</th><td>上がった人は数えない。パスした人は数える。一周して自分に戻ったら場が流れる</td></tr>
     <tr><th>7渡しの相手</th><td>次の人が上がっていたら、さらに次のまだ上がっていない人</td></tr>
@@ -135,7 +162,6 @@ export const RULES_HTML = `
     <tr><th>階段のつながり</th><td>3から2まで。${cs('SK', 'SA', 'S2')} は○、${cs('SA', 'S2', 'S3')} は×</td></tr>
     <tr><th>同じ数字</th><td>2〜4枚まで(4枚+ジョーカーの5枚は出せない)</td></tr>
     <tr><th>都落ち</th><td>前回の大富豪が1位を逃したら、その場で大貧民として抜ける</td></tr>
-    <tr><th>反則上がり</th><td>なし(どのカードで上がってもOK)</td></tr>
   </table>
 </section>
 
@@ -162,4 +188,5 @@ export const RULES_HTML = `
       <li>残り1人になったらゲーム終了</li>
     </ul>
   </details>
-</section>`;
+</section>`
+}

@@ -1,10 +1,10 @@
 // ゲーム進行(状態遷移)。通信から独立した純粋関数。
 // applyAction(game, uid, action, myHand) は「自分の手札」と公開状態だけから次の状態を作る。
 // 他人の手札は読まない:7渡し・交換は受け箱(inbox)へ、12ボンバーは各自が自分の手札に適用する。
-import { makeDeck, shuffle, strongest, strengthKey, parseCard, rankFromChar, rankChar, RANK_CHARS } from './cards.js';
+import { makeDeck, shuffle, strongest, strengthKey, parseCard, rankFromChar, rankChar, RANK_CHARS, DEFAULT_JOKERS } from './cards.js';
 import {
   interpretations, canPlay, effectsOf, direction, suitLockFormed, isNumberStep,
-  noNextNumber, isJokerSingle,
+  isJokerSingle, forbiddenFinish, hasLegalPlay,
 } from './rules.js';
 
 export class RuleError extends Error {}
@@ -37,7 +37,10 @@ export function normalizeGame(raw) {
   const g = structuredClone(raw);
   g.seq = g.seq || 0;
   g.order = toArray(g.order);
-  g.field = toArray(g.field).map((e) => ({ ...e, cards: toArray(e.cards), jr: e.jr ?? null }));
+  const jr = (v) => (v == null ? [] : typeof v === 'number' ? [v] : toArray(v));
+  g.field = toArray(g.field).map((e) => ({ ...e, cards: toArray(e.cards), jr: jr(e.jr) }));
+  g.leadPasses = g.leadPasses || 0;
+  g.rules = { jokers: DEFAULT_JOKERS, ...(g.rules || {}) };
   g.lastBy = g.lastBy || null;
   g.turn = g.turn || null;
   g.passed = g.passed || {};
@@ -130,8 +133,11 @@ function finish(g, u) {
   }
 }
 
-function endGame(g) {
-  const ranking = [...g.finished, ...activePlayers(g), ...(g.ochi ? [g.ochi] : [])];
+// stuck: 残った全員が出せる手を持たずに終わったとき(最後の1枚が禁止カード)。残りは手札の少ない順・同じなら席順
+function endGame(g, stuck = false) {
+  let rest = activePlayers(g);
+  if (stuck) rest = [...rest].sort((a, b) => g.handCount[a] - g.handCount[b] || g.order.indexOf(a) - g.order.indexOf(b));
+  const ranking = [...g.finished, ...rest, ...(g.ochi ? [g.ochi] : [])];
   const t = titlesFor(ranking.length);
   const titles = {}, delta = {};
   ranking.forEach((u, i) => {
@@ -144,7 +150,7 @@ function endGame(g) {
   g.bombApply = null;
   g.resolve = null;
   g.result = { ranking, titles, delta };
-  g.events.push({ t: 'end' });
+  g.events.push({ t: 'end', stuck });
 }
 
 function top(g) {
@@ -191,7 +197,7 @@ function advance(g) {
   g.resolve = null;
   const by = r.by;
   if (r.eight) return flow(g, leaderAfter(g, by), 'eight');
-  if (noNextNumber(top(g), g.effects)) return flow(g, leaderAfter(g, g.lastBy || by), 'noNext');
+  // 数字縛りで次の数字がなくても場はすぐには流さない(単体ジョーカーなどはまだ出せるため)
   const w = walk(g, by, 1 + r.skip);
   if (r.skip > 0) g.events.push({ t: 'skip', uid: by, skipped: w.skipped });
   if (w.flow) return flow(g, leaderAfter(g, g.lastBy || by), 'round');
@@ -229,10 +235,10 @@ function startPlay(g) {
 
 // ---------- 配札 ----------
 // order: 席順(時計回り)の uid 配列, prevTitles: { uid: 前ゲームの称号 }
-export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = null, rng = Math.random }) {
+export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = null, rng = Math.random, jokers = DEFAULT_JOKERS }) {
   const n = order.length;
   if (n < 2) err('2人以上必要です');
-  const deck = shuffle(makeDeck(), rng);
+  const deck = shuffle(makeDeck(jokers), rng);
   const total = n === 2 ? 40 : deck.length;
   const titleOf = (t) => order.find((u) => prevTitles[u] === t) || null;
   const daihinmin = gameNo > 1 ? titleOf('daihinmin') : null;
@@ -296,6 +302,7 @@ export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = 
     pending: null, bombApply: null, resolve: null, finished: [], ochi: null,
     prevTitles: { ...prevTitles }, prevDaifugo, exchange: hasExchange ? exchange : null,
     events: [{ t: 'deal' }, ...(hasExchange ? [] : [{ t: 'start', uid: first }])], result: null,
+    leadPasses: 0, rules: { jokers: Math.max(0, Math.min(2, jokers)) },
   };
   return { game, hands, inbox };
 }
@@ -329,12 +336,17 @@ export function applyAction(game0, uid, action, hand0, { isHost = false } = {}) 
       const options = interpretations(cards).filter((c) => canPlay(c, t, g.effects));
       const combo = action.interp ? options.find((o) => o.key === action.interp) : options[0];
       if (!combo) err('その組み合わせは出せません');
+      if (cards.length === hand.length) {
+        const why = forbiddenFinish(combo, t, g.effects);
+        if (why) err(`最後の1手に${why}は使えません(禁止上がり)`);
+      }
       hand = removeCards(hand, cards);
+      g.leadPasses = 0;
       handChanged = true;
       g.handCount[uid] = hand.length;
       const dirBefore = direction(g.effects);
-      const entry = { by: uid, cards: [...cards], type: combo.type, size: combo.size, low: combo.low, jr: combo.jr ?? null };
-      const ev = { t: 'play', uid, cards: [...cards], type: combo.type, size: combo.size, low: combo.low, jr: combo.jr ?? null, fx: [] };
+      const entry = { by: uid, cards: [...cards], type: combo.type, size: combo.size, low: combo.low, jr: [...combo.jr] };
+      const ev = { t: 'play', uid, cards: [...cards], type: combo.type, size: combo.size, low: combo.low, jr: [...combo.jr], fx: [] };
       const spe3 = !!t && isJokerSingle(t) && combo.type === 'single' && combo.low === 3;
       g.field.push(entry);
       g.lastBy = uid;
@@ -382,9 +394,18 @@ export function applyAction(game0, uid, action, hand0, { isHost = false } = {}) 
       if (action.type === 'pass' && g.turn !== uid) err('あなたの番ではありません');
       if (action.type === 'forcePass' && !isHost) err('ホストだけが操作できます');
       if (g.field.length === 0) {
-        if (action.type === 'pass') err('親はパスできません');
-        // 親が不在:次の人に親を移す
-        g.events.push({ t: 'pass', uid: who, forced: true });
+        // 親のパス:出せる手が1つもないとき(禁止上がりで詰んだとき)だけ。親は次の人に移る
+        if (action.type === 'pass') {
+          needMine();
+          if (hasLegalPlay(hand, null, g.effects)) err('親はパスできません');
+        }
+        g.events.push({ t: 'pass', uid: who, forced: action.type === 'forcePass', lead: true });
+        g.leadPasses = (g.leadPasses || 0) + 1;
+        // 残った全員が親で出せなかったら終了
+        if (g.leadPasses >= activePlayers(g).length) {
+          endGame(g, true);
+          break;
+        }
         g.turn = nextActiveFrom(g, who) || who;
         break;
       }
@@ -499,7 +520,10 @@ export function fieldTop(g) {
 
 export function canPassNow(g, uid, hand) {
   if (!g || g.status !== 'playing' || g.turn !== uid || g.pending || g.bombApply) return { ok: false };
-  if (g.field.length === 0) return { ok: false, reason: '親はパスできません' };
+  if (g.field.length === 0) {
+    if (hasLegalPlay(hand, null, g.effects)) return { ok: false, reason: '親はパスできません' };
+    return { ok: true, lead: true };
+  }
   return { ok: true };
 }
 

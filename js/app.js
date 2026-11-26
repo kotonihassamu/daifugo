@@ -6,7 +6,7 @@ import { SVG_DEFS, cardSvg } from './ui/card-svg.js';
 import { GameView } from './ui/game-view.js';
 import { sound } from './ui/sound.js';
 import { esc, toast, openModal, closeModal } from './ui/dom.js';
-import { RULES_HTML } from './ui/rules-text.js';
+import { rulesHtml } from './ui/rules-text.js';
 import { cardLabel } from './cards.js';
 
 const params = new URLSearchParams(location.search);
@@ -302,6 +302,16 @@ function renderLobby() {
       </ol>
       <p class="muted small">部屋にいる人は全員参加します(参加順=席順・最大8人)。見るだけの人は「観戦にする」を押してください。切断中の人は入りません。</p>
     </section>
+    <section class="panel settings-panel">
+      <h2>ルール設定 <span class="muted">${ctrl.isHost ? 'ホストが変更できます・次のゲームから' : 'ホストが決めます'}</span></h2>
+      <div class="setting-row">
+        <span class="setting-name">ジョーカー</span>
+        ${ctrl.isHost
+          ? `<div class="seg">${[0, 1, 2].map((n) => `<button class="${ctrl.settings.jokers === n ? 'on' : ''}" data-act="jokers" data-n="${n}">${n}枚</button>`).join('')}</div>`
+          : `<b>${ctrl.settings.jokers}枚</b>`}
+      </div>
+      <p class="muted small">そのほかのルールは「ルール」ボタンで確認できます。</p>
+    </section>
     <div class="lobby-actions">
       ${ctrl.isHost
         ? `<button class="btn primary big wide" data-act="start" ${seated.length < 2 ? 'disabled' : ''}>ゲーム開始(${seated.length}人)</button>
@@ -323,6 +333,7 @@ function renderLobby() {
       if (act === 'result') showResult();
       if (act === 'ready') await ctrl.setReady(!meReady);
       if (act === 'kick') await ctrl.removePlayer(btn.dataset.uid);
+      if (act === 'jokers') await ctrl.setJokers(Number(btn.dataset.n));
       if (act === 'start') await ctrl.startGame();
       if (act === 'takeHost') await ctrl.takeHost();
       if (act === 'leave') {
@@ -391,7 +402,7 @@ function showResult() {
 }
 
 function openRules() {
-  const modal = openModal(`<div class="rules">${RULES_HTML}</div>`);
+  const modal = openModal(`<div class="rules">${rulesHtml(ctrl.activeRules)}</div>`);
   modal.addEventListener('click', (e) => {
     const id = e.target.closest('[data-jump]')?.dataset.jump;
     if (!id) return;

@@ -39,10 +39,13 @@ export function rankFromChar(ch) {
   return ch === 'JK' ? JOKER_RANK : RANK_CHARS.indexOf(ch) + 3;
 }
 
-export function makeDeck() {
+export const DEFAULT_JOKERS = 2;
+
+// 52枚+ジョーカー(0〜2枚)。ジョーカーは JK1, JK2
+export function makeDeck(jokers = DEFAULT_JOKERS) {
   const deck = [];
   for (const s of SUITS) for (const r of RANK_CHARS) deck.push(s + r);
-  deck.push('JK1');
+  for (let i = 1; i <= Math.max(0, Math.min(2, jokers)); i++) deck.push('JK' + i);
   return deck;
 }
 

@@ -1,8 +1,8 @@
 // ルール判定(通信とは独立した純粋関数)
 // 手(combo)の表現:
 //   { type: 'single'|'group'|'seq', size, low, jr, eff: [{code, rank, suit, joker}], key }
-//   low  … 単体・グループはその数字、階段は一番小さい数字。単体ジョーカーは 16
-//   jr   … ジョーカーを代わりに使った数字(使っていなければ null)
+//   low  … 単体・グループはその数字、階段は一番小さい数字。ジョーカーだけの手(単体・2枚)は 16
+//   jr   … ジョーカーを代わりに使った数字の配列(ジョーカーを使っていなければ空)
 // 場の手(field entry): { by, cards, type, size, low, jr }
 import { parseCard, JOKER_RANK, rankLabel, SUIT_SYMBOL } from './cards.js';
 
@@ -11,9 +11,9 @@ export function direction(effects) {
   return !!effects?.revolution !== !!effects?.elevenBack ? -1 : 1;
 }
 
-function mk(type, eff, low, jr) {
+function mk(type, eff, low, jr = []) {
   const size = eff.length;
-  return { type, size, low, jr, eff, key: `${type}:${size}:${low}:${jr ?? '-'}` };
+  return { type, size, low, jr, eff, key: `${type}:${size}:${low}:${jr.join('.') || '-'}` };
 }
 
 // 選んだカードを「出せる形」として解釈する。ジョーカー入りで複数の解釈があり得る
@@ -28,14 +28,19 @@ export function interpretations(codes) {
 
   if (n === 1) {
     const c = cs[0];
-    out.push(mk('single', [{ ...c }], c.joker ? JOKER_RANK : c.rank, null));
+    out.push(mk('single', [{ ...c }], c.joker ? JOKER_RANK : c.rank));
     return out;
   }
-  // 同じ数字 2〜4 枚
-  if (n <= 4 && normals.length >= 1 && normals.every((c) => c.rank === normals[0].rank)) {
+  // ジョーカー2枚だけのペア:最強のペア
+  if (normals.length === 0) {
+    if (n === 2) out.push(mk('group', cs.map((c) => ({ ...c })), JOKER_RANK));
+    return out;
+  }
+  // 同じ数字 2〜4 枚(ジョーカーはその数字の代わり)
+  if (n <= 4 && normals.every((c) => c.rank === normals[0].rank)) {
     const r = normals[0].rank;
     const eff = cs.map((c) => (c.joker ? { ...c, rank: r } : { ...c }));
-    out.push(mk('group', eff, r, jokers.length ? r : null));
+    out.push(mk('group', eff, r, jokers.map(() => r)));
   }
   // 階段 3 枚以上(3〜2、一周なし)
   if (n >= 3) {
@@ -52,15 +57,19 @@ export function interpretations(codes) {
         let mi = 0;
         for (const c of cs) eff.push(c.joker ? { ...c, rank: missing[mi++] } : { ...c });
         eff.sort((a, b) => a.rank - b.rank);
-        out.push(mk('seq', eff, low, missing.length ? missing[0] : null));
+        out.push(mk('seq', eff, low, missing));
       }
     }
   }
   return out;
 }
 
+// ジョーカーだけでできた手(単体ジョーカー・ジョーカー2枚のペア)
+export function isAllJoker(x) {
+  return !!x && x.low === JOKER_RANK;
+}
 export function isJokerSingle(x) {
-  return x && x.type === 'single' && x.low === JOKER_RANK;
+  return !!x && x.type === 'single' && x.low === JOKER_RANK;
 }
 
 function concreteSuits(entryOrCombo) {
@@ -86,7 +95,7 @@ export function suitsMatchLock(combo, lock) {
 
 // マーク縛りの成立判定。成立すれば縛るマーク(並べたもの)を返す
 export function suitLockFormed(prev, cur) {
-  if (isJokerSingle(prev) || isJokerSingle(cur)) return null;
+  if (isAllJoker(prev) || isAllJoker(cur)) return null;
   if (prev.size !== cur.size) return null;
   const ps = concreteSuits(prev), cs = concreteSuits(cur);
   const pj = prev.size - ps.length, cj = cur.size - cs.length;
@@ -98,40 +107,41 @@ export function suitLockFormed(prev, cur) {
   } else if (cj > 0 && pj === 0) {
     if (isSubMultiset(cs, ps)) lock = ps;
   }
+  // 両方にジョーカーが入っているときはマークが決まらないので縛らない
   return lock ? [...lock].sort() : null;
 }
 
 // 数字縛り:直前の手の「1つ強い」数字か
 export function isNumberStep(prev, cur, dir) {
-  if (isJokerSingle(prev) || isJokerSingle(cur)) return false;
+  if (isAllJoker(prev) || isAllJoker(cur)) return false;
   return cur.low === prev.low + dir;
 }
 
-// 数字縛り中で「次に出せる数字」が存在しないか
+// 数字縛り中で「次の数字」が存在しないか(このときはジョーカーだけの手しか出せない)
 export function noNextNumber(top, effects) {
-  if (!effects?.numberLock || !top || isJokerSingle(top)) return false;
+  if (!effects?.numberLock || !top || isAllJoker(top)) return false;
   const next = top.low + direction(effects);
   if (top.type === 'seq') return next < 3 || next + top.size - 1 > 15;
   return next < 3 || next > 15;
 }
 
 export function requiredNumber(top, effects) {
-  if (!effects?.numberLock || !top || isJokerSingle(top)) return null;
-  const next = top.low + direction(effects);
+  if (!effects?.numberLock || !top || isAllJoker(top)) return null;
   if (noNextNumber(top, effects)) return null;
-  return next;
+  return top.low + direction(effects);
 }
 
-// 場(top)に対してこの手が出せるか
+// 場(top)に対してこの手が出せるか(禁止上がりは別に判定する)
 export function canPlay(combo, top, effects) {
   if (!top) return true;
   if (combo.type !== top.type || combo.size !== top.size) return false;
-  if (isJokerSingle(top)) {
-    // スペ3返し(縛り中でも可)
+  if (isAllJoker(top)) {
+    if (top.type !== 'single') return false; // ジョーカー2枚のペアには何も出せない
+    // スペ3返し(縛り中でも可)。ジョーカーにジョーカーは出せない
     const e = combo.eff[0];
-    return combo.type === 'single' && !e.joker && e.suit === 'S' && e.rank === 3;
+    return !e.joker && e.suit === 'S' && e.rank === 3;
   }
-  if (isJokerSingle(combo)) return true; // 単体ジョーカーは常に最強
+  if (isAllJoker(combo)) return true; // ジョーカーだけの手は常に最強(縛りにも関係しない)
   const dir = direction(effects);
   if (dir > 0 ? combo.low <= top.low : combo.low >= top.low) return false;
   if (effects?.numberLock && combo.low !== top.low + dir) return false;
@@ -139,10 +149,21 @@ export function canPlay(combo, top, effects) {
   return true;
 }
 
+// 禁止上がり:最後の1手に使えないカードが入っていれば理由を返す(なければ null)
+//   2(革命中は3)・ジョーカー・8(8切り)・スペ3返し。判定は出す前の状態で行う。11バックでは変わらない
+export function forbiddenFinish(combo, top, effects) {
+  if (combo.eff.some((e) => e.joker)) return 'ジョーカー';
+  const strongest = effects?.revolution ? 3 : 15;
+  if (combo.eff.some((e) => e.rank === strongest)) return effects?.revolution ? '3(革命中)' : '2';
+  if (combo.eff.some((e) => e.rank === 8)) return '8';
+  if (isJokerSingle(top) && combo.type === 'single' && combo.low === 3) return 'スペ3返し';
+  return null;
+}
+
 // 手に含まれる効果
 export function effectsOf(combo) {
   const fx = { revolution: false, jack: false, sevens: 0, tens: 0, queens: 0, fives: 0, eight: false };
-  if (isJokerSingle(combo)) return fx;
+  if (isAllJoker(combo)) return fx;
   for (const e of combo.eff) {
     if (e.rank === 7) fx.sevens++;
     if (e.rank === 10) fx.tens++;
@@ -156,22 +177,13 @@ export function effectsOf(combo) {
   return fx;
 }
 
-export function comboFromEntry(entry) {
-  // 場の手を判定用の形に戻す
-  const eff = entry.cards.map((code) => {
-    const c = parseCard(code);
-    if (c.joker && entry.type !== 'single') return { ...c, rank: entry.jr };
-    return c;
-  });
-  return { type: entry.type, size: entry.size, low: entry.low, jr: entry.jr ?? null, eff };
-}
-
 export function describeCombo(combo) {
-  const jk = combo.eff.find((e) => e.joker);
-  if (combo.type === 'single') return jk ? 'ジョーカー' : '1枚';
-  if (combo.type === 'group') return `${rankLabel(combo.low)}の${combo.size}枚` + (jk ? '(ジョーカー入り)' : '');
+  const jks = combo.eff.filter((e) => e.joker);
+  if (isAllJoker(combo)) return combo.size === 1 ? 'ジョーカー' : 'ジョーカー2枚(最強のペア)';
+  if (combo.type === 'single') return '1枚';
+  if (combo.type === 'group') return `${rankLabel(combo.low)}の${combo.size}枚` + (jks.length ? '(ジョーカー入り)' : '');
   const seq = combo.eff.map((e) => rankLabel(e.rank)).join('-');
-  return jk ? `${seq}(ジョーカーを${rankLabel(jk.rank)}として)` : seq;
+  return jks.length ? `${seq}(ジョーカーを${jks.map((e) => rankLabel(e.rank)).join('・')}として)` : seq;
 }
 
 function combinations(list, k) {
@@ -188,25 +200,26 @@ function combinations(list, k) {
   return res;
 }
 
-// 手札から場に出せる手を列挙する(ヒント表示と「出せるカードがあるか」の判定に使う)
+// 手札から場に出せる手を列挙する(ヒント表示と「出せる手があるか」の判定に使う)
+// 手札を出し切る手は、禁止上がりになるなら除く
 // 戻り値: { any, cards:Set<code>, plays: [codes[]] }
 export function legalPlays(hand, top, effects, limit = 400) {
   const result = { any: false, cards: new Set(), plays: [] };
   if (!hand || hand.length === 0) return result;
+  const finishes = (codes) => codes.length === hand.length;
   const add = (codes, combo) => {
     if (!canPlay(combo, top, effects)) return;
+    if (finishes(codes) && forbiddenFinish(combo, top, effects)) return;
     result.any = true;
     for (const c of codes) result.cards.add(c);
     if (result.plays.length < limit) result.plays.push(codes);
   };
   if (!top) {
-    // 親は何でも出せる(単体で十分)
-    result.any = true;
-    for (const c of hand) result.cards.add(c);
-    for (const c of hand) result.plays.push([c]);
+    // 親は単体ならどれでも出せる(最後の1枚だけは禁止上がりに注意)
+    for (const c of hand) for (const cb of interpretations([c])) add([c], cb);
     return result;
   }
-  const joker = hand.find((c) => parseCard(c).joker);
+  const jokers = hand.filter((c) => parseCard(c).joker);
   const byRank = {};
   for (const code of hand) {
     const c = parseCard(code);
@@ -221,12 +234,16 @@ export function legalPlays(hand, top, effects, limit = 400) {
   if (top.type === 'group') {
     for (const r of Object.keys(byRank)) {
       const L = byRank[r];
-      for (const cmb of combinations(L, size)) for (const cb of interpretations(cmb)) if (cb.type === 'group') add(cmb, cb);
-      if (joker && size - 1 >= 1)
-        for (const cmb of combinations(L, size - 1)) {
-          const codes = [...cmb, joker];
+      for (let j = 0; j <= Math.min(jokers.length, size - 1); j++) {
+        for (const cmb of combinations(L, size - j)) {
+          const codes = [...cmb, ...jokers.slice(0, j)];
           for (const cb of interpretations(codes)) if (cb.type === 'group') add(codes, cb);
         }
+      }
+    }
+    if (size === 2 && jokers.length >= 2) {
+      const codes = jokers.slice(0, 2);
+      for (const cb of interpretations(codes)) add(codes, cb);
     }
     return result;
   }
@@ -235,24 +252,29 @@ export function legalPlays(hand, top, effects, limit = 400) {
     const window = [];
     for (let r = low; r < low + size; r++) window.push(r);
     const missing = window.filter((r) => !byRank[r]);
-    if (missing.length > 1 || (missing.length === 1 && !joker)) continue;
-    // ジョーカーの位置の候補(足りない数字を埋める or 既にある数字の代わり)
-    const jokerSlots = missing.length === 1 ? [missing[0]] : joker ? [null, ...window] : [null];
-    for (const js of jokerSlots) {
-      const probe = { type: 'seq', size, low, jr: js, eff: [] };
+    if (missing.length > jokers.length) continue;
+    // ジョーカーを置く数字の組(足りない数字は必ず埋める。余ったジョーカーは既にある数字の代わりにもできる)
+    const extra = window.filter((r) => byRank[r]);
+    const placements = [missing];
+    const spare = jokers.length - missing.length;
+    if (spare >= 1) for (const r of extra) placements.push([...missing, r]);
+    if (spare >= 2) for (const pr of combinations(extra, 2)) placements.push([...missing, ...pr]);
+    for (const P of placements) {
+      if (P.length >= size) continue;
+      const probe = { type: 'seq', size, low, jr: P, eff: window.map((r) => ({ rank: r, suit: null, joker: true })) };
       // 強さと数字縛りだけを先に確認(マークは後で)
-      if (!canPlay({ ...probe, eff: window.map((r) => ({ rank: r, suit: null, joker: true })) }, top, { ...effects, suitLock: null })) continue;
-      const slots = window.map((r) => (r === js ? [joker] : byRank[r]));
+      if (!canPlay(probe, top, { ...effects, suitLock: null })) continue;
+      let ji = 0;
+      const slots = window.map((r) => (P.includes(r) ? [jokers[ji++]] : byRank[r]));
       if (!effects?.suitLock) {
         const codes = slots.map((s) => s[0]);
         for (const cb of interpretations(codes)) if (cb.type === 'seq' && cb.low === low) add(codes, cb);
-        for (const s of slots) for (const c of s) result.cards.add(c);
+        if (!finishes(codes)) for (const s of slots) for (const c of s) result.cards.add(c);
         continue;
       }
       // マーク縛り中は組み合わせを探索
-      const lock = effects.suitLock;
       const counts = {};
-      for (const s of lock) counts[s] = (counts[s] || 0) + 1;
+      for (const s of effects.suitLock) counts[s] = (counts[s] || 0) + 1;
       const acc = [];
       let found = 0;
       const rec = (i) => {
