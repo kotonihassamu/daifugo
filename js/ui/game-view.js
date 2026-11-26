@@ -52,6 +52,12 @@ function setRevolutionTheme(on) {
   document.querySelector('meta[name=theme-color]')?.setAttribute('content', on ? '#6e1620' : '#0f3d2e');
 }
 
+function hashNum(s) {
+  let h = 7;
+  for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h;
+}
+
 function hashRot(s) {
   let h = 0;
   for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) | 0;
@@ -97,6 +103,7 @@ export class GameView {
         </div>
         <div class="me-bar"></div>
         <div class="turn-banner" aria-live="polite"></div>
+        <div class="hand-note" role="status"></div>
         <div class="prompt"></div>
         <div class="hand" id="hand"></div>
         <div class="controls">
@@ -110,7 +117,7 @@ export class GameView {
       code: q('.g-code'), no: q('.g-no'), table: q('#table'), seats: q('.seats'), field: q('#field'),
       fieldInfo: q('.field-info'), badges: q('.badges'), status: q('.status-line'), me: q('.me-bar'),
       prompt: q('.prompt'), hand: q('#hand'), pass: q('.pass-btn'), play: q('.play-btn'), sort: q('.sort-btn'),
-      turn: q('.turn-banner'), sideBadges: q('.side-badges'),
+      turn: q('.turn-banner'), note: q('.hand-note'), sideBadges: q('.side-badges'),
     };
     // 場をタップすると最新の手を大きく表示(それより前の手は見せない)
     this.el.field.addEventListener('click', () => this.openTopPlay());
@@ -288,15 +295,26 @@ export class GameView {
             sp = Math.max(cw * 0.42, (fieldW - cw) / Math.max(1, n - 1));
           }
         } else {
-          cw = base * 0.82;
-          sp = cw * 0.14;
+          // 前の手:ほぼ同じ大きさで少し詰めて置き、ずれと傾きで「下に積まれている」ことが分かるようにする
+          cw = base * 0.94;
+          sp = Math.min(cw * 0.3, (fieldW * 0.8 - cw) / Math.max(1, n - 1));
         }
         const w = cw + (n - 1) * sp;
-        const rot = (c) => (d === 0 ? hashRot(c + idx) / 2 : hashRot(c + idx));
+        const key = e.cards.join('') + (entries.length - show.length + idx);
+        const rot = (c) => (d === 0 ? hashRot(c + idx) / 2 : hashRot(c + idx) * 0.6);
         const cards = e.cards
           .map((c, i) => `<div class="card" data-code="${c}" style="left:${i * sp}px;transform:rotate(${rot(c)}deg)">${cardSvg(c)}</div>`)
           .join('');
-        return `<div class="play${d === 0 ? ' top' : ' old'}" style="--d:${d};--cw:${cw}px;width:${w}px;margin-left:${-w / 2}px">${cards}</div>`;
+        let pose = '';
+        if (d > 0) {
+          const h = hashNum(key);
+          const k = base / 60; // カードが大きい画面ではずれも大きく
+          const dx = ((h % 2 ? 1 : -1) * (6 + (h % 7) + d * 3) * k).toFixed(1);
+          const dy = ((-(3 + d * 4) + ((h >> 3) % 5)) * k).toFixed(1);
+          const r = ((((h >> 5) % 13) - 6) * (0.8 + d * 0.3)).toFixed(1);
+          pose = `transform:translate(${dx}px,${dy}px) rotate(${r}deg);--b:${(0.9 - d * 0.12).toFixed(2)};`;
+        }
+        return `<div class="play${d === 0 ? ' top' : ' old'}" style="--d:${d};--cw:${cw}px;width:${w}px;margin-left:${-w / 2}px;${pose}">${cards}</div>`;
       })
       .join('');
     const t = entries[entries.length - 1];
@@ -363,8 +381,7 @@ export class GameView {
       else text = '';
       if (host && p.uid !== this.me && off(p.uid)) btns.push(['skipPending', '代わりにスキップ']);
     } else if (g.status === 'playing') {
-      if (g.turn === this.me) text = '<b>あなたの番です</b>';
-      else text = `${esc(this.name(g.turn))}さんの番`;
+      if (g.turn !== this.me) text = `${esc(this.name(g.turn))}さんの番`;
       if (host && g.turn !== this.me && off(g.turn)) btns.push(['forcePass', '代わりにパス']);
     }
     this.el.status.innerHTML = `<span>${text}</span>${btns.map(([a, l]) => `<button class="btn small" data-act="${a}">${l}</button>`).join('')}`;
@@ -568,17 +585,15 @@ export class GameView {
     if (m.kind === 'turn') {
       main = 'あなたの番です';
       if (this.forbidReason && this.sel.size) sub = `最後の1手に${this.forbidReason}は使えません(禁止上がり)`;
-      else if (g.field.length === 0 && canPassNow(g, this.me, this.ctrl.hand).lead) sub = '出せる手がありません。パスすると親が次の人に移ります';
-      else if (g.field.length === 0) sub = '親です。好きなカードから出せます';
-      else sub = '出すカードを選ぶか、パス';
     } else if (m.kind === 'seven' || m.kind === 'ten' || m.kind === 'exchange') {
       main = 'あなたが選ぶ番です';
     } else if (g?.pending?.uid === this.me && g.pending.type === 'bomb') {
       main = 'あなたが数字を選ぶ番です';
     }
-    this.el.turn.innerHTML = main ? `<b>${main}</b>${sub ? `<span>${esc(sub)}</span>` : ''}` : '';
+    this.el.turn.innerHTML = main ? `<b>${main}</b>` : '';
     this.el.turn.classList.toggle('show', !!main);
-    this.el.turn.classList.toggle('warn', !!(this.forbidReason && this.sel.size && m.kind === 'turn'));
+    this.el.note.textContent = sub;
+    this.el.note.classList.toggle('show', !!sub);
     this.el.hand.classList.toggle('my-turn', !!main);
   }
 
