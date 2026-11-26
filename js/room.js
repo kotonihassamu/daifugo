@@ -54,7 +54,7 @@ export class RoomController extends EventTarget {
   get settings() {
     const r = this.room?.rules || {};
     const j = Number.isInteger(r.jokers) ? r.jokers : DEFAULT_JOKERS;
-    return { jokers: Math.max(0, Math.min(2, j)) };
+    return { jokers: Math.max(0, Math.min(2, j)), numberLock: r.numberLock !== false };
   }
 
   // いま遊んでいるゲームのルール(ゲーム中は開始時の設定で固定)
@@ -62,9 +62,10 @@ export class RoomController extends EventTarget {
     return this.inGame && this.game?.rules ? this.game.rules : this.settings;
   }
 
-  async setJokers(n) {
+  // ルール設定の変更(ホストだけ)。key: 'jokers' | 'numberLock'
+  async setRule(key, value) {
     if (!this.isHost) throw new Error('ホストだけが変更できます');
-    await this.b.update({ [`rooms/${this.roomId}/rules`]: { version: 1, ...(this.room?.rules || {}), jokers: n }, ...this.touch() });
+    await this.b.update({ [`rooms/${this.roomId}/rules`]: { version: 1, ...(this.room?.rules || {}), [key]: value }, ...this.touch() });
   }
 
   async createRoom(name) {
@@ -243,7 +244,7 @@ export class RoomController extends EventTarget {
     const last = prev?.result?.titles || {};
     for (const p of seated) if (last[p.uid]) prevTitles[p.uid] = last[p.uid];
     const gameNo = (prev?.gameNo || 0) + 1;
-    const { game, hands, inbox } = dealGame({ order, gameNo, prevTitles, seq: prev?.seq || 0, actor: this.uid, jokers: this.settings.jokers });
+    const { game, hands, inbox } = dealGame({ order, gameNo, prevTitles, seq: prev?.seq || 0, actor: this.uid, jokers: this.settings.jokers, numberLock: this.settings.numberLock });
     const rid = this.roomId;
     const paths = { [`rooms/${rid}/game`]: serializeGame(game), ...this.touch() };
     for (const u of order) {

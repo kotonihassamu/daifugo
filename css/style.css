@@ -28,6 +28,7 @@ body {
   background: radial-gradient(120% 80% at 50% 30%, var(--felt-light), var(--felt) 45%, var(--felt-dark));
   background-attachment: fixed;
   overscroll-behavior: none;
+  transition: background-color .6s;
   -webkit-user-select: none;
   user-select: none;
   -webkit-text-size-adjust: 100%;
@@ -145,7 +146,7 @@ button { font: inherit; }
 /* ---------- ゲーム画面 ---------- */
 .game-root { height: 100%; }
 .game {
-  height: 100%; display: flex; flex-direction: column; overflow: hidden;
+  height: 100%; height: 100dvh; display: flex; flex-direction: column; overflow: hidden;
   padding-top: var(--safe-t); padding-bottom: var(--safe-b);
 }
 .g-top { display: flex; justify-content: space-between; align-items: center; padding: 4px 10px; color: #fff; flex: none; min-height: 46px; }
@@ -425,6 +426,55 @@ button { font: inherit; }
 }
 .update-bar .btn { min-height: 34px; }
 #toast { bottom: calc(40px + var(--safe-b)); }
+}
+
+/* 革命中:画面全体を赤に(テーブルの外の緑も) */
+html:has(body.revolution) { background: #5c1018; }
+body.revolution { background: radial-gradient(120% 80% at 50% 30%, #b13a44, #8a1d28 45%, #5c1018); background-attachment: fixed; }
+body.revolution .table.revolution .felt { background: radial-gradient(90% 70% at 50% 45%, #c0434c, #9b2733 60%, #7a1a25); }
+
+/* スマホのタッチ操作 */
+.hand, .card, .seat, .field { -webkit-touch-callout: none; }
+
+/* iPad などの大きい画面:席・場・手札・文字・ボタンを大きく */
+@media (min-width: 700px) and (min-height: 600px) {
+  .g-top { min-height: 58px; padding: 6px 16px; }
+  .g-room { font-size: 18px; }
+  .g-top .muted { font-size: 14px; }
+  .icon-btn { min-height: 48px; min-width: 60px; font-size: 16px; }
+  .table { margin: 0 12px; }
+  .felt { border-radius: 64px; }
+  .seat { width: 132px; padding: 8px 6px 9px; border-radius: 18px; border-width: 3px; }
+  .seat-fan { height: 48px; width: 96px; }
+  .mini-back { width: 27px; height: 38px; margin-left: -13.5px; border-radius: 3px; }
+  .seat-count { font-size: 17px; padding: 2px 7px; }
+  .seat-name { font-size: 17px; }
+  .seat-tags { gap: 4px; }
+  .seat-tags .tag { font-size: 13px; padding: 4px 8px; }
+  .place-badge { font-size: 16px; padding: 4px 10px; }
+  .badges { min-height: 28px; gap: 6px; }
+  .badge { font-size: 15px; padding: 5px 12px; }
+  .field-info { font-size: 16px; min-height: 22px; }
+  .status-line { font-size: 17px; bottom: 18px; }
+  .me-bar, .turn-banner, .prompt, .controls { width: calc(100% - 24px); max-width: 780px; margin-left: auto; margin-right: auto; }
+  .me-bar { font-size: 16px; padding-top: 6px; }
+  .turn-banner { padding: 10px 16px; border-radius: 16px; }
+  .turn-banner b { font-size: 26px; }
+  .turn-banner span { font-size: 15px; }
+  .prompt.show { font-size: 16px; padding: 10px 16px; }
+  .hand { margin: 4px auto 0; width: calc(100% - 24px); max-width: 1100px; }
+  .controls { gap: 12px; padding: 8px 0 14px; }
+  .controls .btn { min-height: 62px; font-size: 19px; border-radius: 14px; }
+  .sort-btn { font-size: 15px; padding: 6px 16px; }
+  .bubble { font-size: 18px; padding: 8px 16px; }
+  .banner { font-size: 44px; }
+  .banner.big { font-size: 68px; }
+  .banner.small { font-size: 22px; }
+  .banner.turn { font-size: 54px; }
+  .tag { font-size: 13px; }
+  .modal { width: min(640px, 100%); }
+  .rules { font-size: 16px; }
+  .table.wide .center { top: 60%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

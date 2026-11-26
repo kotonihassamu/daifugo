@@ -310,6 +310,12 @@ function renderLobby() {
           ? `<div class="seg">${[0, 1, 2].map((n) => `<button class="${ctrl.settings.jokers === n ? 'on' : ''}" data-act="jokers" data-n="${n}">${n}枚</button>`).join('')}</div>`
           : `<b>${ctrl.settings.jokers}枚</b>`}
       </div>
+      <div class="setting-row">
+        <span class="setting-name">数字縛り</span>
+        ${ctrl.isHost
+          ? `<div class="seg">${[[true, 'あり'], [false, 'なし']].map(([v, l]) => `<button class="${ctrl.settings.numberLock === v ? 'on' : ''}" data-act="numberLock" data-v="${v}">${l}</button>`).join('')}</div>`
+          : `<b>${ctrl.settings.numberLock ? 'あり' : 'なし'}</b>`}
+      </div>
       <p class="muted small">そのほかのルールは「ルール」ボタンで確認できます。</p>
     </section>
     <div class="lobby-actions">
@@ -333,7 +339,8 @@ function renderLobby() {
       if (act === 'result') showResult();
       if (act === 'ready') await ctrl.setReady(!meReady);
       if (act === 'kick') await ctrl.removePlayer(btn.dataset.uid);
-      if (act === 'jokers') await ctrl.setJokers(Number(btn.dataset.n));
+      if (act === 'jokers') await ctrl.setRule('jokers', Number(btn.dataset.n));
+      if (act === 'numberLock') await ctrl.setRule('numberLock', btn.dataset.v === 'true');
       if (act === 'start') await ctrl.startGame();
       if (act === 'takeHost') await ctrl.takeHost();
       if (act === 'leave') {

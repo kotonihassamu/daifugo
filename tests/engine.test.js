@@ -216,6 +216,20 @@ test('残った全員が禁止カードしかないときは、そこで終了(�
   assert.deepEqual(s.game.result.ranking, ['c', 'a', 'b']);
 });
 
+test('数字縛りなしの部屋では、1つ強い数字を出しても縛りにならない', () => {
+  const s = sim(['a', 'b', 'c'], { a: ['SA', 'S5'], b: ['H2', 'H6'], c: ['C3', 'C7'] }, { rules: { numberLock: false } });
+  s.game.field = [{ by: 'c', cards: ['CK'], type: 'single', size: 1, low: 13, jr: [] }];
+  s.game.lastBy = 'c';
+  act(s, 'a', { type: 'play', cards: ['SA'] });
+  assert.equal(s.game.effects.numberLock, false);
+  // 縛りがないので2以外も出せる(Aより強い2)
+  act(s, 'b', { type: 'play', cards: ['H2'] });
+  assert.equal(s.game.effects.numberLock, false);
+  const d = dealGame({ order: ['a', 'b'], numberLock: false });
+  assert.equal(d.game.rules.numberLock, false);
+  assert.equal(dealGame({ order: ['a', 'b'] }).game.rules.numberLock, true);
+});
+
 test('マーク縛りは場が流れたら解除', () => {
   const s = sim(['a', 'b'], { a: ['HA', 'SA', 'H3'], b: ['H2', 'S2', 'D2', 'C2', 'DK'] });
   s.game.field = [{ by: 'b', cards: ['HK', 'SK'], type: 'group', size: 2, low: 13, jr: null }];

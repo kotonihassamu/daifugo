@@ -46,6 +46,12 @@ function seatPositions(k, landscape) {
   return pos;
 }
 
+// 革命中は画面全体(背景とブラウザのバー)を赤にする
+function setRevolutionTheme(on) {
+  document.body.classList.toggle('revolution', on);
+  document.querySelector('meta[name=theme-color]')?.setAttribute('content', on ? '#6e1620' : '#0f3d2e');
+}
+
 function hashRot(s) {
   let h = 0;
   for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) | 0;
@@ -119,6 +125,7 @@ export class GameView {
   destroy() {
     this.resizeObs?.disconnect();
     window.removeEventListener('resize', this.onResize);
+    setRevolutionTheme(false);
   }
 
   get me() {
@@ -220,6 +227,7 @@ export class GameView {
     const { bottom, others, spectator } = this.viewOrder(g);
     const rect = this.el.table.getBoundingClientRect();
     const landscape = rect.width > rect.height * 1.25;
+    this.el.table.classList.toggle('wide', landscape);
     const pos = seatPositions(others.length, landscape);
     const list = others.map((u, i) => ({ u, ...pos[i] }));
     if (spectator && bottom) list.push({ u: bottom, x: 50, y: landscape ? 80 : 86 });
@@ -255,7 +263,8 @@ export class GameView {
 
   fieldCardWidth() {
     const r = this.el.table.getBoundingClientRect();
-    return Math.round(Math.max(42, Math.min(74, r.width * 0.15, r.height * 0.2)));
+    const big = window.innerWidth >= 700 && window.innerHeight >= 600; // iPad など
+    return Math.round(Math.max(42, Math.min(big ? 118 : 74, r.width * 0.15, r.height * 0.2)));
   }
 
   // 最新の手は重ねずに並べてはっきり見せる。それより前の手は下に小さく積んで隠す(覚えるのもゲーム性)
@@ -328,6 +337,7 @@ export class GameView {
     this.el.sideBadges.innerHTML = b.join(''); // 横向きでは右の列に出す
     // 革命中・11バック中はテーブルの見た目を変える
     this.el.table.classList.toggle('revolution', !!e.revolution);
+    setRevolutionTheme(!!e.revolution && g.status === 'playing');
     this.el.table.classList.toggle('eleven', !!e.elevenBack);
   }
 
@@ -430,7 +440,8 @@ export class GameView {
     const W = this.el.hand.clientWidth - 24;
     const H = window.innerHeight;
     if (W <= 0) return;
-    const maxCw = Math.min(76, W / 5, (H * (H < 560 ? 0.24 : 0.2) * 63) / 88);
+    const big = window.innerWidth >= 700 && H >= 600; // iPad など
+    const maxCw = Math.min(big ? 112 : 76, W / 5, (H * (H < 560 ? 0.24 : big ? 0.18 : 0.2) * 63) / 88);
     const cw = Math.min(maxCw, W / (0.36 * Math.max(0, n - 1) + 1));
     const step = n > 1 ? Math.min(cw * 0.62, (W - cw) / (n - 1)) : 0;
     const total = cw + step * (n - 1);
