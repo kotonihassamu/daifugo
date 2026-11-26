@@ -1,6 +1,6 @@
 // ゲーム画面:テーブル配置・場・手札・操作ボタン・演出
 import { sortCards, cardLabel, rankLabel } from '../cards.js';
-import { interpretations, canPlay, legalPlays, direction, describeCombo, lockLabel, requiredNumber } from '../rules.js';
+import { interpretations, canPlay, legalPlays, direction, describeCombo, lockLabel, requiredNumber, noNextNumber, forbiddenFinish, isAllJoker } from '../rules.js';
 import { canPassNow, TITLES, fieldTop } from '../engine.js';
 import { cardSvg } from './card-svg.js';
 import { flyFrom, flyCard, banner, revolutionFlash, bubble, sweep, dropBadge, reduceMotion, wait } from './anim.js';
@@ -31,10 +31,10 @@ function seatPositions(k, landscape) {
   if (landscape) {
     // 横長で背の低いテーブル:左右に1人ずつ、残りは上の列に並べる(時計回り=左→上→右)
     if (k === 0) return [];
-    if (k === 1) return [{ x: 50, y: 20 }];
+    if (k === 1) return [{ x: 50, y: 18 }];
     const top = k - 2;
     const pos = [{ x: 8, y: 60 }];
-    for (let i = 0; i < top; i++) pos.push({ x: top === 1 ? 50 : 22 + (56 * i) / (top - 1), y: 20 });
+    for (let i = 0; i < top; i++) pos.push({ x: top === 1 ? 50 : 22 + (56 * i) / (top - 1), y: 18 });
     pos.push({ x: 92, y: 60 });
     return pos;
   }
@@ -87,8 +87,10 @@ export class GameView {
             <div class="field-info"></div>
           </div>
           <div class="status-line"></div>
+          <div class="badges side-badges"></div>
         </div>
         <div class="me-bar"></div>
+        <div class="turn-banner" aria-live="polite"></div>
         <div class="prompt"></div>
         <div class="hand" id="hand"></div>
         <div class="controls">
@@ -102,7 +104,10 @@ export class GameView {
       code: q('.g-code'), no: q('.g-no'), table: q('#table'), seats: q('.seats'), field: q('#field'),
       fieldInfo: q('.field-info'), badges: q('.badges'), status: q('.status-line'), me: q('.me-bar'),
       prompt: q('.prompt'), hand: q('#hand'), pass: q('.pass-btn'), play: q('.play-btn'), sort: q('.sort-btn'),
+      turn: q('.turn-banner'), sideBadges: q('.side-badges'),
     };
+    // 場をタップすると最新の手を大きく表示(それより前の手は見せない)
+    this.el.field.addEventListener('click', () => this.openTopPlay());
     this.root.addEventListener('click', (e) => this.onClick(e));
     this.bindHand();
     this.resizeObs = new ResizeObserver(() => this.layoutHand());
@@ -135,6 +140,11 @@ export class GameView {
     if (mine(game) && !mine(prev)) {
       if (this.settings.vibrate) navigator.vibrate?.(40);
       sound.play('turn');
+      // 効果の演出の順番待ちをせず、すぐに出す(もう自分の番でなければ出さない)
+      clearTimeout(this.turnFxTimer);
+      this.turnFxTimer = setTimeout(() => {
+        if (mine(this.ctrl.game)) banner('あなたの番', 'gold turn');
+      }, 350);
     }
   }
 
@@ -235,7 +245,7 @@ export class GameView {
     }).join('');
     const placeBadge = place >= 0 ? `<div class="place-badge">${place + 1}位</div>` : g.ochi === u ? '<div class="place-badge ochi">都落ち</div>' : '';
     const host = this.ctrl.hostUid === u ? '<span class="host-mark" title="ホスト">★</span>' : '';
-    return `<div class="seat${turn ? ' turn' : ''}${p.online === false ? ' offline' : ''}${place >= 0 || g.ochi === u ? ' done' : ''}" data-uid="${esc(u)}" style="left:${x}%;top:clamp(${landscape ? 36 : 50}px, ${y}%, calc(100% - 40px))">
+    return `<div class="seat${turn ? ' turn' : ''}${p.online === false ? ' offline' : ''}${place >= 0 || g.ochi === u ? ' done' : ''}" data-uid="${esc(u)}" style="left:${x}%;top:clamp(${landscape ? 40 : 50}px, ${y}%, calc(100% - 40px))">
       <div class="seat-fan">${fan}${count ? `<span class="seat-count">×${count}</span>` : ''}</div>
       <div class="seat-name">${host}${esc(p.name || '?')}</div>
       <div class="seat-tags">${tags.join('')}</div>
@@ -248,29 +258,58 @@ export class GameView {
     return Math.round(Math.max(42, Math.min(74, r.width * 0.15, r.height * 0.2)));
   }
 
+  // 最新の手は重ねずに並べてはっきり見せる。それより前の手は下に小さく積んで隠す(覚えるのもゲーム性)
   renderField(entries) {
-    const cw = this.fieldCardWidth();
+    const base = this.fieldCardWidth();
+    const fieldW = Math.max(120, this.el.field.clientWidth || 200);
     const show = entries.slice(-4);
-    this.el.field.style.setProperty('--cw', cw + 'px');
+    this.el.field.style.setProperty('--cw', base + 'px');
     this.el.field.innerHTML = show
       .map((e, idx) => {
         const d = show.length - 1 - idx;
         const n = e.cards.length;
-        const sp = n > 4 ? cw * 0.38 : cw * 0.5;
+        let cw, sp;
+        if (d === 0) {
+          const gap = 4;
+          cw = Math.min(base, (fieldW - gap * (n - 1)) / n);
+          sp = cw + gap;
+          if (cw < base * 0.62) {
+            // 入りきらない長い階段だけ、数字が見える幅を残して少し重ねる
+            cw = base * 0.62;
+            sp = Math.max(cw * 0.42, (fieldW - cw) / Math.max(1, n - 1));
+          }
+        } else {
+          cw = base * 0.82;
+          sp = cw * 0.14;
+        }
         const w = cw + (n - 1) * sp;
+        const rot = (c) => (d === 0 ? hashRot(c + idx) / 2 : hashRot(c + idx));
         const cards = e.cards
-          .map((c, i) => `<div class="card" data-code="${c}" style="left:${i * sp}px;transform:rotate(${hashRot(c + idx)}deg)">${cardSvg(c)}</div>`)
+          .map((c, i) => `<div class="card" data-code="${c}" style="left:${i * sp}px;transform:rotate(${rot(c)}deg)">${cardSvg(c)}</div>`)
           .join('');
-        return `<div class="play${d === 0 ? ' top' : ''}" style="--d:${d};width:${w}px;margin-left:${-w / 2}px">${cards}</div>`;
+        return `<div class="play${d === 0 ? ' top' : ' old'}" style="--d:${d};--cw:${cw}px;width:${w}px;margin-left:${-w / 2}px">${cards}</div>`;
       })
       .join('');
     const t = entries[entries.length - 1];
     if (t) {
-      const kind = t.type === 'seq' ? '階段' : t.type === 'group' ? `${t.size}枚` : '';
-      this.el.fieldInfo.innerHTML = `<b>${esc(this.name(t.by))}</b> ×${t.size}${kind && t.type === 'seq' ? ' 階段' : ''}`;
+      this.el.fieldInfo.innerHTML = `<b>${esc(this.name(t.by))}</b> ×${t.size}${t.type === 'seq' ? ' 階段' : ''} <span class="zoom-hint">タップで拡大</span>`;
     } else {
       this.el.fieldInfo.innerHTML = '';
     }
+  }
+
+  openTopPlay() {
+    const g = this.ctrl.game;
+    const t = g && fieldTop(g);
+    if (!t) return;
+    const combo = interpretations(t.cards).find((x) => x.type === t.type && x.low === t.low);
+    const body = document.createElement('div');
+    body.innerHTML = `<h2>${esc(this.name(t.by))}さんが出した手</h2>
+      <div class="zoom-cards">${t.cards.map((c) => `<div class="zoom-card">${cardSvg(c)}</div>`).join('')}</div>
+      <p class="center-text"><b>${combo ? esc(describeCombo(combo)) : ''}</b></p>
+      <div class="badges zoom-badges">${this.el.badges.innerHTML}</div>
+      <p class="muted small center-text">それより前に出たカードは表示しません。</p>`;
+    openModal(body);
   }
 
   renderBadges(g) {
@@ -280,10 +319,16 @@ export class GameView {
     if (e.elevenBack) b.push('<span class="badge purple">11バック</span>');
     if (e.suitLock) b.push(`<span class="badge blue">縛り ${lockLabel(e.suitLock)}</span>`);
     if (e.numberLock) {
-      const r = requiredNumber(fieldTop(g), e);
-      b.push(`<span class="badge blue">数字縛り${r ? ` 次は${rankLabel(r)}` : ''}</span>`);
+      const top = fieldTop(g);
+      const r = requiredNumber(top, e);
+      const none = noNextNumber(top, e);
+      b.push(`<span class="badge blue">数字縛り${r ? ` 次は${rankLabel(r)}` : none ? ' 次はジョーカーのみ' : ''}</span>`);
     }
     this.el.badges.innerHTML = b.join('');
+    this.el.sideBadges.innerHTML = b.join(''); // 横向きでは右の列に出す
+    // 革命中・11バック中はテーブルの見た目を変える
+    this.el.table.classList.toggle('revolution', !!e.revolution);
+    this.el.table.classList.toggle('eleven', !!e.elevenBack);
   }
 
   renderStatus(g) {
@@ -464,9 +509,17 @@ export class GameView {
     return { kind: 'none' };
   }
 
+  // いまの選択で出せる解釈。最後の1手が禁止上がりになるものは除き、理由を覚えておく
   playOptions(g) {
     const t = fieldTop(g);
-    return interpretations([...this.sel]).filter((c) => canPlay(c, t, g.effects));
+    const opts = interpretations([...this.sel]).filter((c) => canPlay(c, t, g.effects));
+    this.forbidReason = null;
+    if (this.sel.size && this.sel.size === this.ctrl.hand.length) {
+      const ok = opts.filter((c) => !forbiddenFinish(c, t, g.effects));
+      if (!ok.length && opts.length) this.forbidReason = forbiddenFinish(opts[0], t, g.effects);
+      return ok;
+    }
+    return opts;
   }
 
   renderControls() {
@@ -480,7 +533,7 @@ export class GameView {
       play.textContent = '出す';
       play.disabled = !synced || this.playOptions(g).length === 0;
       const cp = canPassNow(g, this.me, this.ctrl.hand);
-      pass.textContent = 'パス';
+      pass.textContent = cp.lead ? 'パス(出せる手なし)' : 'パス';
       pass.disabled = !synced || !cp.ok;
       pass.title = cp.reason || '';
     } else if (m.kind === 'seven' || m.kind === 'ten' || m.kind === 'exchange') {
@@ -494,6 +547,28 @@ export class GameView {
       pass.disabled = true;
     }
     this.el.sort.textContent = this.settings.sort === 'suit' ? 'マーク順' : '強さ順';
+    play.classList.toggle('ready', !play.disabled);
+    this.renderTurn(g, m);
+  }
+
+  // 自分の番をはっきり見せる(手札の上の帯と、手札の枠の光)
+  renderTurn(g, m) {
+    let main = '', sub = '';
+    if (m.kind === 'turn') {
+      main = 'あなたの番です';
+      if (this.forbidReason && this.sel.size) sub = `最後の1手に${this.forbidReason}は使えません(禁止上がり)`;
+      else if (g.field.length === 0 && canPassNow(g, this.me, this.ctrl.hand).lead) sub = '出せる手がありません。パスすると親が次の人に移ります';
+      else if (g.field.length === 0) sub = '親です。好きなカードから出せます';
+      else sub = '出すカードを選ぶか、パス';
+    } else if (m.kind === 'seven' || m.kind === 'ten' || m.kind === 'exchange') {
+      main = 'あなたが選ぶ番です';
+    } else if (g?.pending?.uid === this.me && g.pending.type === 'bomb') {
+      main = 'あなたが数字を選ぶ番です';
+    }
+    this.el.turn.innerHTML = main ? `<b>${main}</b>${sub ? `<span>${esc(sub)}</span>` : ''}` : '';
+    this.el.turn.classList.toggle('show', !!main);
+    this.el.turn.classList.toggle('warn', !!(this.forbidReason && this.sel.size && m.kind === 'turn'));
+    this.el.hand.classList.toggle('my-turn', !!main);
   }
 
   // ---------- 操作 ----------
@@ -645,7 +720,7 @@ export class GameView {
           break;
         }
         case 'pass':
-          bubble(this.seatEl(ev.uid), ev.forced ? 'パス(代理)' : 'パス', 'pass');
+          bubble(this.seatEl(ev.uid), ev.forced ? 'パス(代理)' : ev.lead ? 'パス(出せる手なし)' : 'パス', 'pass');
           break;
         case 'skip':
           for (const u of ev.skipped || []) bubble(this.seatEl(u), 'スキップ', 'skip');
@@ -706,7 +781,7 @@ export class GameView {
         dropBadge(this.seatEl(ev.uid), ev.place);
         this.fx(`${this.name(ev.uid)} ${ev.place}位あがり!`, 'gold');
       }
-      if (ev.t === 'end') this.fx('ゲーム終了', 'big');
+      if (ev.t === 'end') this.fx(ev.stuck ? '出せる人がいないため終了' : 'ゲーム終了', ev.stuck ? '' : 'big');
     }
   }
 

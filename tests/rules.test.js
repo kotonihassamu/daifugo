@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  interpretations, canPlay, suitLockFormed, effectsOf, legalPlays, noNextNumber, direction,
+  interpretations, canPlay, suitLockFormed, effectsOf, legalPlays, noNextNumber, direction, forbiddenFinish,
 } from '../js/rules.js';
 import { sortCards } from '../js/cards.js';
 
@@ -32,7 +32,7 @@ test('ジョーカー入りの解釈は複数ありうる', () => {
   assert.deepEqual(xs.map((x) => x.low).sort(), [4, 5]);
   const mid = interpretations(['S9', 'JK1', 'HJ']);
   assert.equal(mid.length, 1);
-  assert.equal(mid[0].jr, 10);
+  assert.deepEqual(mid[0].jr, [10]);
   const pair = interpretations(['S9', 'JK1']);
   assert.equal(pair[0].type, 'group');
   assert.equal(pair[0].low, 9);
@@ -137,4 +137,40 @@ test('出せる手の列挙', () => {
 test('並び替え', () => {
   assert.deepEqual(sortCards(['S2', 'JK1', 'D3', 'S3', 'HA']), ['D3', 'S3', 'HA', 'S2', 'JK1']);
   assert.deepEqual(sortCards(['S2', 'D3', 'HA'], 'strength', true), ['D3', 'HA', 'S2'].reverse());
+});
+
+test('ジョーカー2枚', () => {
+  // ジョーカー2枚だけのペアは最強のペア
+  const jp = one(['JK1', 'JK2']);
+  assert.equal(jp.type, 'group');
+  assert.ok(canPlay(jp, entry(['S2', 'H2']), fx0));
+  assert.ok(canPlay(jp, entry(['S3', 'H3']), { ...fx0, revolution: true, numberLock: true, suitLock: ['H', 'S'] }));
+  assert.ok(!canPlay(one(['S2', 'H2']), entry(['JK1', 'JK2']), fx0));
+  // 2枚使った同じ数字・階段
+  assert.equal(one(['S5', 'JK1', 'JK2']).type, 'group');
+  const seq = interpretations(['S5', 'JK1', 'JK2']).filter((x) => x.type === 'seq');
+  assert.deepEqual(seq.map((x) => x.low).sort(), [3, 4, 5]);
+  const mid = interpretations(['S5', 'JK1', 'JK2', 'S8']).filter((x) => x.type === 'seq');
+  assert.equal(mid.length, 1);
+  assert.deepEqual(mid[0].jr, [6, 7]);
+  // ジョーカーにジョーカーは出せない
+  assert.ok(!canPlay(one(['JK2']), entry(['JK1']), fx0));
+  // 出せる手の列挙
+  const lp = legalPlays(['JK1', 'JK2', 'S9'], entry(['H4', 'C4']), fx0);
+  assert.ok(lp.cards.has('JK1') && lp.cards.has('S9'));
+});
+
+test('禁止上がりの判定', () => {
+  assert.equal(forbiddenFinish(one(['H2']), null, fx0), '2');
+  assert.equal(forbiddenFinish(one(['H2']), null, { revolution: true }), null);
+  assert.equal(forbiddenFinish(one(['H3']), null, { revolution: true }), '3(革命中)');
+  assert.equal(forbiddenFinish(one(['H3']), null, { elevenBack: true }), null);
+  assert.equal(forbiddenFinish(one(['JK1']), null, fx0), 'ジョーカー');
+  assert.equal(forbiddenFinish(one(['S6', 'S7', 'S8']), null, fx0), '8');
+  assert.equal(forbiddenFinish(one(['S3']), entry(['JK1']), fx0), 'スペ3返し');
+  assert.equal(forbiddenFinish(one(['S3']), null, fx0), null);
+  // 最後の1枚が禁止カードなら、出せる手はない
+  assert.equal(legalPlays(['H2'], null, fx0).any, false);
+  assert.equal(legalPlays(['H2', 'S4'], null, fx0).any, true);
+  assert.ok(!legalPlays(['S8'], entry(['H4']), fx0).any);
 });

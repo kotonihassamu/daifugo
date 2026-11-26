@@ -55,7 +55,7 @@ await sleep(800);
 for (const p of cs.slice(0, 4)) check(p.c.game?.status === 'playing', 'started for ' + p.c.uid);
 await denied(B.b.get(`hands/${rid}/${A.b.uid}`), '他人の手札は読めない');
 await denied(A.b.get(`hands/${rid}/${B.b.uid}`), 'ホストも他人の手札は読めない');
-check(A.c.hand.length + B.c.hand.length + C.c.hand.length + D.c.hand.length === 53, 'all 53 dealt');
+check(A.c.hand.length + B.c.hand.length + C.c.hand.length + D.c.hand.length === 54, '54枚(ジョーカー2枚)を配り切る');
 
 // 手番でない人の書き込みは拒否される
 const turnUid = A.c.game.turn;

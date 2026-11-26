@@ -1,5 +1,6 @@
 // 部屋への参加・同期・操作の送信。エンジン(純粋関数)とバックエンド(Firebase/ローカル)をつなぐ。
 import { applyAction, dealGame, normalizeGame, serializeGame, RuleError } from './engine.js';
+import { DEFAULT_JOKERS } from './cards.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 const MAX_PLAYERS = 8;
@@ -47,6 +48,23 @@ export class RoomController extends EventTarget {
   }
   get hostUid() {
     return this.room?.meta?.hostUid || null;
+  }
+
+  // 部屋のルール設定(ホストが待合室で変える。次のゲームから反映)
+  get settings() {
+    const r = this.room?.rules || {};
+    const j = Number.isInteger(r.jokers) ? r.jokers : DEFAULT_JOKERS;
+    return { jokers: Math.max(0, Math.min(2, j)) };
+  }
+
+  // いま遊んでいるゲームのルール(ゲーム中は開始時の設定で固定)
+  get activeRules() {
+    return this.inGame && this.game?.rules ? this.game.rules : this.settings;
+  }
+
+  async setJokers(n) {
+    if (!this.isHost) throw new Error('ホストだけが変更できます');
+    await this.b.update({ [`rooms/${this.roomId}/rules`]: { version: 1, ...(this.room?.rules || {}), jokers: n }, ...this.touch() });
   }
 
   async createRoom(name) {
@@ -225,7 +243,7 @@ export class RoomController extends EventTarget {
     const last = prev?.result?.titles || {};
     for (const p of seated) if (last[p.uid]) prevTitles[p.uid] = last[p.uid];
     const gameNo = (prev?.gameNo || 0) + 1;
-    const { game, hands, inbox } = dealGame({ order, gameNo, prevTitles, seq: prev?.seq || 0, actor: this.uid });
+    const { game, hands, inbox } = dealGame({ order, gameNo, prevTitles, seq: prev?.seq || 0, actor: this.uid, jokers: this.settings.jokers });
     const rid = this.roomId;
     const paths = { [`rooms/${rid}/game`]: serializeGame(game), ...this.touch() };
     for (const u of order) {
