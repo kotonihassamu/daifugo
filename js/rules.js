@@ -286,3 +286,20 @@ export function hasLegalPlay(hand, top, effects) {
 export function lockLabel(lock) {
   return lock.map((s) => SUIT_SYMBOL[s]).join('');
 }
+
+// 画面に出す縛りの説明。階段はマークが1種類なので「♠♠♠」ではなく「♠の階段」と書く
+export function suitLockText(lock, top) {
+  if (!lock?.length) return '';
+  if (top?.type === 'seq') return `${SUIT_SYMBOL[lock[0]]}の階段縛り`;
+  return `縛り ${lockLabel(lock)}`;
+}
+
+// 数字縛りで次に出せる数字。階段は全体の並び(例:7-8-9)で書く
+export function numberLockText(top, effects) {
+  const r = requiredNumber(top, effects);
+  if (r) {
+    if (top.type === 'seq') return `次は${Array.from({ length: top.size }, (_, i) => rankLabel(r + i)).join('-')}`;
+    return `次は${rankLabel(r)}`;
+  }
+  return noNextNumber(top, effects) ? '次はジョーカーのみ' : '';
+}

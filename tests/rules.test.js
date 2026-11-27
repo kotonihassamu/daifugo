@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   interpretations, canPlay, suitLockFormed, effectsOf, legalPlays, noNextNumber, direction, forbiddenFinish,
+  suitLockText, numberLockText,
 } from '../js/rules.js';
 import { sortCards } from '../js/cards.js';
 
@@ -187,4 +188,14 @@ test('出せる手の列挙:階段は同じマークだけ', () => {
   // ジョーカーで同じマークの穴を埋める
   const jk = legalPlays(['C9', 'CJ', 'JK1', 'D3'], entry(['H3', 'H4', 'H5']), fx0);
   assert.ok(jk.cards.has('C9') && jk.cards.has('CJ') && jk.cards.has('JK1'));
+});
+
+test('縛りの表示:階段はマーク1つと数字の並びで書く', () => {
+  assert.equal(suitLockText(['H', 'S'], entry(['H4', 'S4'])), '縛り ♥♠');
+  assert.equal(suitLockText(['S', 'S', 'S'], entry(['S7', 'S8', 'S9'])), '♠の階段縛り');
+  const nl = { ...fx0, numberLock: true };
+  assert.equal(numberLockText(entry(['H6']), nl), '次は7');
+  assert.equal(numberLockText(entry(['H6', 'H7', 'H8']), nl), '次は7-8-9');
+  assert.equal(numberLockText(entry(['H6', 'H7', 'H8']), { ...nl, revolution: true }), '次は5-6-7');
+  assert.equal(numberLockText(entry(['SK', 'SA', 'S2']), nl), '次はジョーカーのみ');
 });
