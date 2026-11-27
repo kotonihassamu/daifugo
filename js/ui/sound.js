@@ -1,5 +1,6 @@
 // 効果音(Web Audio)。合成音は sfx.js、録音した音は sounds/ フォルダ
 import { makeBus, playSfx, playTurn, subBus } from './sfx.js';
+import { createBgmPlayer } from './bgm.js';
 
 // 使う音(比較ページで選んだパターン)。null は鳴らさない、'file' は FILES の録音を使う
 export const CHOSEN = {
@@ -39,118 +40,25 @@ function create() {
   bus = makeBus(ctx, VOLUME);
   buffers = {};
   check = null;
-  bgmNode = null;
   ctx.onstatechange = () => {
     if (ctx && ctx.state === 'running') {
       check = { wall: performance.now(), audio: ctx.currentTime };
-      // 止まっていた間に曲の位置がずれるので、ほかの端末と同じ位置からやり直す
+      // 音声が再開したら、保存した位置からBGMも再開する
       bgmSync();
     }
   };
   loadFiles();
-  if (bgmState.want) bgmSync();
+  bgmSync();
   return true;
 }
 
 // ---------- BGM ----------
-// ゲーム開始の時刻(サーバー時刻)からの経過で再生位置を決めるので、どの端末でもだいたい同じところが流れる
-const BGM = {
+export const bgm = createBgmPlayer({
   url: new URL('../../sounds/bgm.m4a', import.meta.url).href,
-  gain: 0.32,
-};
-const bgmState = { want: false, startedAt: 0, enabled: true, clock: () => Date.now() };
-let bgmBuf = null; // ストリーミング用の HTMLAudioElement
-let bgmNode = null;
-let bgmSource = null;
-let bgmContext = null;
-
-function loadBgm() {
-  if (bgmBuf || !ctx) return;
-  const audio = new Audio(BGM.url);
-  audio.preload = 'metadata';
-  audio.loop = true;
-  audio.addEventListener('loadedmetadata', () => bgmSync());
-  bgmBuf = audio;
-}
-
-function bgmFadeOut(sec = 0.6) {
-  const n = bgmNode;
-  bgmNode = null;
-  if (!n || !ctx) return;
-  try {
-    const t = ctx.currentTime;
-    n.gain.gain.cancelScheduledValues(t);
-    n.gain.gain.setValueAtTime(n.gain.gain.value, t);
-    n.gain.gain.linearRampToValueAtTime(0, t + sec);
-    n.src.stop(t + sec + 0.05);
-  } catch {}
-}
-
-function bgmSync() {
-  if (!bgmState.want || !bgmState.enabled || !ctx) return bgmFadeOut();
-  if (!bgmBuf) loadBgm();
-  if (ctx.state !== 'running' || !Number.isFinite(bgmBuf.duration) || bgmBuf.duration <= 0) return;
-  bgmFadeOut(0.25);
-  // 長い曲も全体をデコードせず、ブラウザの音声ストリーミングで再生する。
-  // AudioContext を作り直した場合はメディア要素も作り直す。
-  if (bgmContext !== ctx) {
-    if (bgmContext) {
-      bgmBuf.pause();
-      bgmBuf.removeAttribute('src');
-      bgmBuf.load();
-      bgmBuf = null;
-      loadBgm();
-      bgmContext = null;
-      return;
-    }
-    bgmSource = ctx.createMediaElementSource(bgmBuf);
-    bgmContext = ctx;
-  }
-  const elapsed = Math.max(0, (bgmState.clock() - bgmState.startedAt) / 1000);
-  bgmBuf.currentTime = elapsed % bgmBuf.duration;
-  const gain = ctx.createGain();
-  const t = ctx.currentTime;
-  gain.gain.setValueAtTime(0, t);
-  gain.gain.linearRampToValueAtTime(BGM.gain, t + (elapsed < 0.5 ? 0.05 : 0.8));
-  bgmSource.connect(gain).connect(ctx.destination);
-  const audio = bgmBuf;
-  const source = bgmSource;
-  const node = { gain, src: { stop(at) {
-    setTimeout(() => {
-      try { source.disconnect(gain); gain.disconnect(); } catch {}
-      if (!bgmNode || bgmNode === node) audio.pause();
-    }, Math.max(0, (at - ctx.currentTime) * 1000));
-  } } };
-  bgmNode = node;
-  audio.play().catch(() => {
-    if (bgmNode === node) bgmFadeOut(0);
-  });
-}
-
-export const bgm = {
-  get enabled() { return bgmState.enabled; },
-  set enabled(on) {
-    bgmState.enabled = !!on;
-    try { bgmSync(); } catch {}
-  },
-  // サーバー時刻を返す関数(端末の時計のずれを直すため)
-  setClock(fn) { bgmState.clock = fn; },
-  // ゲーム開始の時刻から流す(同じ時刻なら何もしない)
-  play(startedAt) {
-    if (bgmState.want && bgmState.startedAt === startedAt) return;
-    bgmState.want = true;
-    bgmState.startedAt = startedAt;
-    try {
-      if (!ctx) create();
-      else bgmSync();
-    } catch {}
-  },
-  stop(fade = 1.2) {
-    if (!bgmState.want) return;
-    bgmState.want = false;
-    try { bgmFadeOut(fade); } catch {}
-  },
-};
+  getContext: () => ctx,
+  ensureContext: () => { if (!ctx) create(); },
+});
+const bgmSync = () => bgm.sync();
 
 function loadFiles() {
   const c = ctx;
@@ -191,7 +99,6 @@ function revive() {
   if (stuck) {
     try { if (st !== 'closed') ctx.close().catch(() => {}); } catch {}
     ctx = null;
-    bgmNode = null;
     create();
     blip();
     return;
@@ -265,11 +172,11 @@ export const sound = {
   },
   // 動作確認用
   _debug() {
-    return { ctx, state: ctx?.state, files: Object.keys(buffers), bgm: !!bgmNode, bgmLoaded: !!bgmBuf, bgmWant: bgmState.want, bgmEnabled: bgmState.enabled };
+    return { ctx, state: ctx?.state, files: Object.keys(buffers), ...bgm.debug() };
   },
   // 画面のどこかを触ったときに呼ぶ(iPhone では操作の中でないと音声を再開できない)
   unlock() {
-    try { revive(); } catch {}
+    try { revive(); bgm.unlock(); } catch {}
   },
 };
 
@@ -286,7 +193,7 @@ if (typeof document !== 'undefined') {
         bgmSync();
       } else {
         // 裏に回ったら BGM は止める(Android などで鳴り続けないように)
-        bgmFadeOut(0.2);
+        bgm.suspend();
       }
     } catch {}
   });

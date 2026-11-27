@@ -103,7 +103,7 @@ function wire() {
     }
     const g = ctrl.game;
     // BGM:ゲーム開始とともに流し、結果・待合室では止める
-    if (g && (g.status === 'playing' || g.status === 'exchange') && typeof g.startedAt === 'number' && ctrl.roomId) bgm.play(g.startedAt);
+    if (g && (g.status === 'playing' || g.status === 'exchange') && typeof g.startedAt === 'number' && ctrl.roomId) bgm.play(g.startedAt, { fresh: screen === 'lobby', roomId: ctrl.roomId });
     else bgm.stop();
     if (ctrl.inGame) {
       clearTimeout(toLobbyTimer);
@@ -178,7 +178,7 @@ function showTop() {
   view?.destroy();
   view = null;
   screen = 'top';
-  bgm.stop(0.5);
+  bgm.stop();
   setUrl(null);
   releaseWake();
   const fan = ['SA', 'HK', 'JK1', 'DQ', 'C2'].map((c, i) => `<div class="card" style="--i:${i - 2}">${cardSvg(c)}</div>`).join('');
@@ -355,7 +355,7 @@ function renderLobby() {
         <span class="setting-name">${l}</span>
         <div class="seg">${[[true, 'オン'], [false, 'オフ']].map(([v, t]) => `<button class="${!!settings[k] === v ? 'on' : ''}" data-act="pref" data-k="${k}" data-v="${v}">${t}</button>`).join('')}</div>
       </div>`).join('')}
-      <p class="muted small">BGM はゲームが始まると流れます。ゲーム中もメニュー(≡)から切り替えられます。</p>
+      <p class="muted small">BGM はゲームが始まると流れます。設定はこの端末だけに適用されます。ゲーム中もメニュー(≡)から切り替えられます。</p>
     </section>
     <div class="lobby-actions">
       ${ctrl.isHost
