@@ -55,35 +55,22 @@ function create() {
 // ---------- BGM ----------
 // ゲーム開始の時刻(サーバー時刻)からの経過で再生位置を決めるので、どの端末でもだいたい同じところが流れる
 const BGM = {
-  url: new URL('../../sounds/bgm.mp3', import.meta.url).href,
-  loop: 29.0909, // 1周の長さ(秒)。sounds/bgm.mp3 に合わせる
+  url: new URL('../../sounds/bgm.m4a', import.meta.url).href,
   gain: 0.32,
 };
 const bgmState = { want: false, startedAt: 0, enabled: true, clock: () => Date.now() };
-let bgmBuf = null;
-let bgmLoading = false;
-let bgmNode = null; // { src, gain }
-let bgmLead = 0; // 先頭の無音(mp3 の詰め物)
+let bgmBuf = null; // ストリーミング用の HTMLAudioElement
+let bgmNode = null;
+let bgmSource = null;
+let bgmContext = null;
 
 function loadBgm() {
-  if (bgmBuf || bgmLoading || !ctx) return;
-  bgmLoading = true;
-  const c = ctx;
-  fetch(BGM.url)
-    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.status))))
-    .then((ab) => new Promise((ok, ng) => c.decodeAudioData(ab, ok, ng)))
-    .then((buf) => {
-      bgmBuf = buf;
-      // 先頭の無音を飛ばして、ちょうど1周ぶんをつなぎ目なしでくり返す
-      const d = buf.getChannelData(0);
-      const lim = Math.min(d.length, Math.floor(buf.sampleRate * 0.2));
-      let i = 0;
-      while (i < lim && Math.abs(d[i]) < 1e-4) i++;
-      bgmLead = i < lim ? i / buf.sampleRate : 0;
-      bgmLoading = false;
-      bgmSync();
-    })
-    .catch(() => { bgmLoading = false; });
+  if (bgmBuf || !ctx) return;
+  const audio = new Audio(BGM.url);
+  audio.preload = 'metadata';
+  audio.loop = true;
+  audio.addEventListener('loadedmetadata', () => bgmSync());
+  bgmBuf = audio;
 }
 
 function bgmFadeOut(sec = 0.6) {
@@ -101,23 +88,43 @@ function bgmFadeOut(sec = 0.6) {
 
 function bgmSync() {
   if (!bgmState.want || !bgmState.enabled || !ctx) return bgmFadeOut();
-  if (!bgmBuf) return loadBgm();
-  if (ctx.state !== 'running') return;
+  if (!bgmBuf) loadBgm();
+  if (ctx.state !== 'running' || !Number.isFinite(bgmBuf.duration) || bgmBuf.duration <= 0) return;
   bgmFadeOut(0.25);
-  const loop = Math.min(BGM.loop, bgmBuf.duration - bgmLead);
+  // 長い曲も全体をデコードせず、ブラウザの音声ストリーミングで再生する。
+  // AudioContext を作り直した場合はメディア要素も作り直す。
+  if (bgmContext !== ctx) {
+    if (bgmContext) {
+      bgmBuf.pause();
+      bgmBuf.removeAttribute('src');
+      bgmBuf.load();
+      bgmBuf = null;
+      loadBgm();
+      bgmContext = null;
+      return;
+    }
+    bgmSource = ctx.createMediaElementSource(bgmBuf);
+    bgmContext = ctx;
+  }
   const elapsed = Math.max(0, (bgmState.clock() - bgmState.startedAt) / 1000);
-  const src = ctx.createBufferSource();
-  src.buffer = bgmBuf;
-  src.loop = true;
-  src.loopStart = bgmLead;
-  src.loopEnd = bgmLead + loop;
+  bgmBuf.currentTime = elapsed % bgmBuf.duration;
   const gain = ctx.createGain();
-  const t = ctx.currentTime + 0.03;
+  const t = ctx.currentTime;
   gain.gain.setValueAtTime(0, t);
   gain.gain.linearRampToValueAtTime(BGM.gain, t + (elapsed < 0.5 ? 0.05 : 0.8));
-  src.connect(gain).connect(ctx.destination);
-  src.start(t, bgmLead + (elapsed % loop));
-  bgmNode = { src, gain };
+  bgmSource.connect(gain).connect(ctx.destination);
+  const audio = bgmBuf;
+  const source = bgmSource;
+  const node = { gain, src: { stop(at) {
+    setTimeout(() => {
+      try { source.disconnect(gain); gain.disconnect(); } catch {}
+      if (!bgmNode || bgmNode === node) audio.pause();
+    }, Math.max(0, (at - ctx.currentTime) * 1000));
+  } } };
+  bgmNode = node;
+  audio.play().catch(() => {
+    if (bgmNode === node) bgmFadeOut(0);
+  });
 }
 
 export const bgm = {
