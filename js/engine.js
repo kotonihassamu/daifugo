@@ -42,6 +42,8 @@ export function normalizeGame(raw) {
   g.leadPasses = g.leadPasses || 0;
   // 全員に公開されたカード(出した・10捨て・ボンバーで捨てた)。CPUが残りのカードを推測するのに使う
   g.seen = toArray(g.seen);
+  // この場で12ボンバーに指定された数字(場が流れるまで画面の端にメモとして出す)
+  g.bombNotes = toArray(g.bombNotes).map((n) => ({ by: n.by, ranks: toArray(n.ranks) }));
   g.rules = { jokers: DEFAULT_JOKERS, numberLock: true, ...(g.rules || {}) };
   g.lastBy = g.lastBy || null;
   g.turn = g.turn || null;
@@ -119,6 +121,7 @@ function flow(g, leader, reason) {
   g.effects.elevenBack = false;
   g.effects.suitLock = null;
   g.effects.numberLock = false;
+  g.bombNotes = [];
   g.turn = leader;
   g.events.push({ t: 'flow', reason: reason || 'pass', leader });
 }
@@ -305,7 +308,7 @@ export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = 
     pending: null, bombApply: null, resolve: null, finished: [], ochi: null,
     prevTitles: { ...prevTitles }, prevDaifugo, exchange: hasExchange ? exchange : null,
     events: [{ t: 'deal' }, ...(hasExchange ? [] : [{ t: 'start', uid: first }])], result: null,
-    leadPasses: 0, seen: [], rules: { jokers: Math.max(0, Math.min(2, jokers)), numberLock: numberLock !== false },
+    leadPasses: 0, seen: [], bombNotes: [], rules: { jokers: Math.max(0, Math.min(2, jokers)), numberLock: numberLock !== false },
   };
   return { game, hands, inbox };
 }
@@ -456,6 +459,7 @@ export function applyAction(game0, uid, action, hand0, { isHost = false } = {}) 
       const waiting = {};
       for (const u of g.order) if (isActive(g, u) && g.handCount[u] > 0) waiting[u] = true;
       g.bombApply = { by: uid, ranks: [...ranks], waiting };
+      (g.bombNotes ||= []).push({ by: uid, ranks: [...ranks] });
       g.events.push({ t: 'bomb', uid, ranks: [...ranks] });
       if (waiting[uid]) {
         needMine();

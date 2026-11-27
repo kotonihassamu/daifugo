@@ -7,6 +7,7 @@ export const CHOSEN = {
   select: 'A',
   deselect: 'A',
   place: 'A',
+  pass: 'A',
   flow: 'A',
   revolution: 'file',
   finish: 'A',
@@ -21,6 +22,8 @@ const FALLBACK = { revolution: 'A' };
 
 // 全体の音量(控えめ)
 const VOLUME = 0.5;
+// 種類ごとの音量(1 = そのまま)。手札を触る音は何度も鳴るので小さめ
+const LEVEL = { select: 0.45, deselect: 0.45 };
 
 let ctx = null;
 let bus = null;
@@ -136,6 +139,10 @@ export const sound = {
         lastUi = now;
       }
       const sb = subBus(b);
+      if (LEVEL[kind]) {
+        sb.bus.out.gain.value = LEVEL[kind];
+        sb.bus.rev.gain.value = LEVEL[kind];
+      }
       let len = -1;
       if (v === 'file') {
         len = playFile(sb.bus, kind, opts);
