@@ -1,51 +1,72 @@
-// 効果音(音声ファイルを使わずWeb Audioで合成)。初期OFF
+// 効果音(音声ファイルを使わず Web Audio で合成)。音そのものは sfx.js
+import { makeBus, playSfx, playTurn, subBus } from './sfx.js';
+
+// 使う音(比較ページで選んだパターン)。null は鳴らさない
+export const CHOSEN = {
+  deal: 'C',
+  select: 'A',
+  deselect: 'A',
+  place: 'A',
+  flow: 'A',
+  revolution: 'A',
+  finish: 'A',
+  end: null,
+};
+
+// 全体の音量(控えめ)
+const VOLUME = 0.5;
+
 let ctx = null;
+let bus = null;
+function ready() {
+  if (!ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    ctx = new AC();
+    bus = makeBus(ctx, VOLUME);
+    // 古い iOS は最初のタップで無音を鳴らしておかないと、その後も鳴らない
+    const s = ctx.createBufferSource();
+    s.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+    s.connect(ctx.destination);
+    s.start(0);
+  }
+  if (ctx.state === 'suspended') ctx.resume();
+  return bus;
+}
+
+let lastUi = 0;
+const NOOP = { stop() {} };
+
 export const sound = {
-  enabled: false,
-  play(kind) {
-    if (!this.enabled) return;
+  enabled: true,
+  // 鳴らす。戻り値の stop() で途中で止められる(配る音で使う)
+  play(kind, opts = {}) {
+    if (!this.enabled) return NOOP;
     try {
-      ctx ||= new (window.AudioContext || window.webkitAudioContext)();
-      if (ctx.state === 'suspended') ctx.resume();
-      const t = ctx.currentTime;
-      if (kind === 'place') {
-        // カードを置く:短いノイズ
-        const len = 0.06;
-        const buf = ctx.createBuffer(1, ctx.sampleRate * len, ctx.sampleRate);
-        const d = buf.getChannelData(0);
-        for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / d.length, 3);
-        const src = ctx.createBufferSource();
-        src.buffer = buf;
-        const f = ctx.createBiquadFilter();
-        f.type = 'bandpass';
-        f.frequency.value = 1800;
-        const g = ctx.createGain();
-        g.gain.value = 0.6;
-        src.connect(f).connect(g).connect(ctx.destination);
-        src.start(t);
-      } else {
-        const notes = kind === 'turn' ? [660, 880] : [520, 390, 260];
-        notes.forEach((hz, i) => {
-          const o = ctx.createOscillator();
-          const g = ctx.createGain();
-          o.type = 'sine';
-          o.frequency.value = hz;
-          const s = t + i * 0.09;
-          g.gain.setValueAtTime(0.0001, s);
-          g.gain.exponentialRampToValueAtTime(0.18, s + 0.015);
-          g.gain.exponentialRampToValueAtTime(0.0001, s + 0.18);
-          o.connect(g).connect(ctx.destination);
-          o.start(s);
-          o.stop(s + 0.2);
-        });
+      const b = ready();
+      if (!b) return NOOP;
+      if (kind === 'turn') {
+        playTurn(b);
+        return NOOP;
       }
-    } catch { /* 音は鳴らなくてもよい */ }
+      const v = CHOSEN[kind];
+      if (!v) return NOOP;
+      // なぞって何枚も選ぶときに鳴りすぎないように
+      if (kind === 'select' || kind === 'deselect') {
+        const now = performance.now();
+        if (now - lastUi < 45) return NOOP;
+        lastUi = now;
+      }
+      const sb = subBus(b);
+      const len = playSfx(sb.bus, kind, v, opts.delay || 0, opts) + (opts.delay || 0);
+      setTimeout(() => sb.stop(), (len + 2.5) * 1000);
+      return sb;
+    } catch {
+      return NOOP;
+    }
   },
-  // iOSでは最初のタップで音声を有効化する必要がある
+  // iOS では最初のタップで音声を有効化する必要がある
   unlock() {
-    try {
-      ctx ||= new (window.AudioContext || window.webkitAudioContext)();
-      if (ctx.state === 'suspended') ctx.resume();
-    } catch {}
+    try { ready(); } catch {}
   },
 };

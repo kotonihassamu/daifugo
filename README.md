@@ -98,7 +98,9 @@ js/cpu/manager.js     ホストの端末で CPU を動かす(待合室の「CPU�
 js/cpu/worker.js      先読みを別スレッドで計算する
 cpu/run.mjs           PC で CPU を動かすプログラム
 tools/cpu-arena.mjs   CPU どうしの対戦で強さを比べる
-js/ui/*.js            カードSVG・ゲーム画面・演出・効果音
+js/ui/*.js            カードSVG・ゲーム画面・演出
+js/ui/sfx.js          効果音の候補(Web Audio で合成。種類ごとに A/B/C)
+js/ui/sound.js        ゲームで使う効果音の選択(CHOSEN)と音量
 database.rules.json   セキュリティルール
 tests/                ルール/進行のテスト、エミュレータでの通し試験
 ```
