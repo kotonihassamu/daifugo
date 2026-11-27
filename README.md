@@ -100,7 +100,8 @@ cpu/run.mjs           PC で CPU を動かすプログラム
 tools/cpu-arena.mjs   CPU どうしの対戦で強さを比べる
 js/ui/*.js            カードSVG・ゲーム画面・演出
 js/ui/sfx.js          効果音の候補(Web Audio で合成。種類ごとに A/B/C)
-js/ui/sound.js        ゲームで使う効果音の選択(CHOSEN)と音量
+js/ui/sound.js        ゲームで使う効果音の選択(CHOSEN)と音量・BGM
+sounds/               録音した音(革命)と BGM(bgm.mp3。差し替えるときは sound.js の BGM.loop を曲の長さに)
 database.rules.json   セキュリティルール
 tests/                ルール/進行のテスト、エミュレータでの通し試験
 ```

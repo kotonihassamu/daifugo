@@ -100,6 +100,7 @@ export function createLocalBackend(opts = {}) {
     kind: 'local',
     uid,
     serverTime: () => SV_TIME,
+    serverOffset: () => 0,
     increment: (n) => ({ '.inc': n }),
     newKey: () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
     on(path, cb) {

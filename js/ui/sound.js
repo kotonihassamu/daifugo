@@ -39,12 +39,111 @@ function create() {
   bus = makeBus(ctx, VOLUME);
   buffers = {};
   check = null;
+  bgmNode = null;
   ctx.onstatechange = () => {
-    if (ctx && ctx.state === 'running') check = { wall: performance.now(), audio: ctx.currentTime };
+    if (ctx && ctx.state === 'running') {
+      check = { wall: performance.now(), audio: ctx.currentTime };
+      // 止まっていた間に曲の位置がずれるので、ほかの端末と同じ位置からやり直す
+      bgmSync();
+    }
   };
   loadFiles();
+  if (bgmState.want) bgmSync();
   return true;
 }
+
+// ---------- BGM ----------
+// ゲーム開始の時刻(サーバー時刻)からの経過で再生位置を決めるので、どの端末でもだいたい同じところが流れる
+const BGM = {
+  url: new URL('../../sounds/bgm.mp3', import.meta.url).href,
+  loop: 29.0909, // 1周の長さ(秒)。sounds/bgm.mp3 に合わせる
+  gain: 0.32,
+};
+const bgmState = { want: false, startedAt: 0, enabled: true, clock: () => Date.now() };
+let bgmBuf = null;
+let bgmLoading = false;
+let bgmNode = null; // { src, gain }
+let bgmLead = 0; // 先頭の無音(mp3 の詰め物)
+
+function loadBgm() {
+  if (bgmBuf || bgmLoading || !ctx) return;
+  bgmLoading = true;
+  const c = ctx;
+  fetch(BGM.url)
+    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(r.status))))
+    .then((ab) => new Promise((ok, ng) => c.decodeAudioData(ab, ok, ng)))
+    .then((buf) => {
+      bgmBuf = buf;
+      // 先頭の無音を飛ばして、ちょうど1周ぶんをつなぎ目なしでくり返す
+      const d = buf.getChannelData(0);
+      const lim = Math.min(d.length, Math.floor(buf.sampleRate * 0.2));
+      let i = 0;
+      while (i < lim && Math.abs(d[i]) < 1e-4) i++;
+      bgmLead = i < lim ? i / buf.sampleRate : 0;
+      bgmLoading = false;
+      bgmSync();
+    })
+    .catch(() => { bgmLoading = false; });
+}
+
+function bgmFadeOut(sec = 0.6) {
+  const n = bgmNode;
+  bgmNode = null;
+  if (!n || !ctx) return;
+  try {
+    const t = ctx.currentTime;
+    n.gain.gain.cancelScheduledValues(t);
+    n.gain.gain.setValueAtTime(n.gain.gain.value, t);
+    n.gain.gain.linearRampToValueAtTime(0, t + sec);
+    n.src.stop(t + sec + 0.05);
+  } catch {}
+}
+
+function bgmSync() {
+  if (!bgmState.want || !bgmState.enabled || !ctx) return bgmFadeOut();
+  if (!bgmBuf) return loadBgm();
+  if (ctx.state !== 'running') return;
+  bgmFadeOut(0.25);
+  const loop = Math.min(BGM.loop, bgmBuf.duration - bgmLead);
+  const elapsed = Math.max(0, (bgmState.clock() - bgmState.startedAt) / 1000);
+  const src = ctx.createBufferSource();
+  src.buffer = bgmBuf;
+  src.loop = true;
+  src.loopStart = bgmLead;
+  src.loopEnd = bgmLead + loop;
+  const gain = ctx.createGain();
+  const t = ctx.currentTime + 0.03;
+  gain.gain.setValueAtTime(0, t);
+  gain.gain.linearRampToValueAtTime(BGM.gain, t + (elapsed < 0.5 ? 0.05 : 0.8));
+  src.connect(gain).connect(ctx.destination);
+  src.start(t, bgmLead + (elapsed % loop));
+  bgmNode = { src, gain };
+}
+
+export const bgm = {
+  get enabled() { return bgmState.enabled; },
+  set enabled(on) {
+    bgmState.enabled = !!on;
+    try { bgmSync(); } catch {}
+  },
+  // サーバー時刻を返す関数(端末の時計のずれを直すため)
+  setClock(fn) { bgmState.clock = fn; },
+  // ゲーム開始の時刻から流す(同じ時刻なら何もしない)
+  play(startedAt) {
+    if (bgmState.want && bgmState.startedAt === startedAt) return;
+    bgmState.want = true;
+    bgmState.startedAt = startedAt;
+    try {
+      if (!ctx) create();
+      else bgmSync();
+    } catch {}
+  },
+  stop(fade = 1.2) {
+    if (!bgmState.want) return;
+    bgmState.want = false;
+    try { bgmFadeOut(fade); } catch {}
+  },
+};
 
 function loadFiles() {
   const c = ctx;
@@ -85,6 +184,7 @@ function revive() {
   if (stuck) {
     try { if (st !== 'closed') ctx.close().catch(() => {}); } catch {}
     ctx = null;
+    bgmNode = null;
     create();
     blip();
     return;
@@ -158,7 +258,7 @@ export const sound = {
   },
   // 動作確認用
   _debug() {
-    return { ctx, state: ctx?.state, files: Object.keys(buffers) };
+    return { ctx, state: ctx?.state, files: Object.keys(buffers), bgm: !!bgmNode, bgmLoaded: !!bgmBuf, bgmWant: bgmState.want, bgmEnabled: bgmState.enabled };
   },
   // 画面のどこかを触ったときに呼ぶ(iPhone では操作の中でないと音声を再開できない)
   unlock() {
@@ -172,7 +272,15 @@ if (typeof document !== 'undefined') {
     document.addEventListener(ev, () => sound.unlock(), { capture: true, passive: true });
   }
   document.addEventListener('visibilitychange', () => {
-    // 裏に回っている間は時計が止まるので、戻ったら確認をやり直す
-    if (document.visibilityState === 'visible' && ctx?.state === 'running') check = { wall: performance.now(), audio: ctx.currentTime };
+    try {
+      if (document.visibilityState === 'visible') {
+        // 裏に回っている間は時計が止まるので、戻ったら確認をやり直し、BGM も今の位置から
+        if (ctx?.state === 'running') check = { wall: performance.now(), audio: ctx.currentTime };
+        bgmSync();
+      } else {
+        // 裏に回ったら BGM は止める(Android などで鳴り続けないように)
+        bgmFadeOut(0.2);
+      }
+    } catch {}
   });
 }

@@ -250,7 +250,8 @@ export class RoomController extends EventTarget {
     const gameNo = (prev?.gameNo || 0) + 1;
     const { game, hands, inbox } = dealGame({ order, gameNo, prevTitles, seq: prev?.seq || 0, actor: this.uid, jokers: this.settings.jokers, numberLock: this.settings.numberLock });
     const rid = this.roomId;
-    const paths = { [`rooms/${rid}/game`]: serializeGame(game), ...this.touch() };
+    // BGM をどの端末でもだいたい同じ位置で流すため、開始時刻(サーバー時刻)を入れておく
+    const paths = { [`rooms/${rid}/game`]: { ...serializeGame(game), startedAt: this.b.serverTime() }, ...this.touch() };
     for (const u of order) {
       paths[`hands/${rid}/${u}`] = hands[u];
       const items = {};
