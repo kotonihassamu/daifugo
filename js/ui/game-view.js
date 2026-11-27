@@ -21,6 +21,8 @@ const FX_TEXT = {
   spe3: ['スペ3返し!', 'gold big'],
 };
 
+const bombRankLabel = (r) => (r === 'JK' ? 'ジョーカー' : r === 'T' ? '10' : r);
+
 // 人数ごとの席の振り分け [左, 上, 右]
 const DIST = { 0: [0, 0, 0], 1: [0, 1, 0], 2: [1, 0, 1], 3: [1, 1, 1], 4: [1, 2, 1], 5: [1, 3, 1], 6: [2, 2, 2], 7: [2, 3, 2] };
 const LEFT = { 1: [52], 2: [66, 34] };
@@ -97,6 +99,7 @@ export class GameView {
             <div class="badges"></div>
             <div class="field" id="field"></div>
             <div class="field-info"></div>
+            <div class="bomb-memo" aria-label="この場でボンバーされた数字"></div>
           </div>
           <div class="status-line"></div>
           <div class="badges side-badges"></div>
@@ -117,7 +120,7 @@ export class GameView {
       code: q('.g-code'), no: q('.g-no'), table: q('#table'), seats: q('.seats'), field: q('#field'),
       fieldInfo: q('.field-info'), badges: q('.badges'), status: q('.status-line'), me: q('.me-bar'),
       prompt: q('.prompt'), hand: q('#hand'), pass: q('.pass-btn'), play: q('.play-btn'), sort: q('.sort-btn'),
-      turn: q('.turn-banner'), note: q('.hand-note'), sideBadges: q('.side-badges'),
+      turn: q('.turn-banner'), note: q('.hand-note'), sideBadges: q('.side-badges'), bombMemo: q('.bomb-memo'),
     };
     // 場をタップすると最新の手を大きく表示(それより前の手は見せない)
     this.el.field.addEventListener('click', () => this.openTopPlay());
@@ -148,26 +151,28 @@ export class GameView {
     if (!game) return;
     // 待合室から始まった最初のゲームは直前の状態がないので、配る演出のために空の場を用意する
     if (!prev && fresh && game.events?.some((ev) => ev.t === 'deal')) prev = { seq: game.seq - 1, field: [], status: 'lobby' };
-    this.queue.push({ prev, game });
-    this.renderControls(game);
+    // 手番の通知は、場の演出(流れるなど)が終わってから出す
+    const notify = this.isMyTurn(game) && !this.isMyTurn(prev);
+    this.queue.push({ prev, game, notify });
     if (!this.running) this.runQueue();
-    // 手番の通知
-    const mine = (g) => g && ((g.status === 'playing' && g.turn === this.me && !g.pending && !g.bombApply) || g.pending?.uid === this.me || (g.status === 'exchange' && g.exchange?.[this.me] && !g.exchange[this.me].done));
-    if (mine(game) && !mine(prev)) {
-      if (this.settings.vibrate) navigator.vibrate?.(40);
-      sound.play('turn');
-      // 効果の演出の順番待ちをせず、すぐに出す(もう自分の番でなければ出さない)
-      clearTimeout(this.turnFxTimer);
-      this.turnFxTimer = setTimeout(() => {
-        if (mine(this.ctrl.game)) banner('あなたの番', 'gold turn');
-      }, 350);
-    }
+  }
+
+  isMyTurn(g) {
+    const me = this.me;
+    return !!g && ((g.status === 'playing' && g.turn === me && !g.pending && !g.bombApply) || g.pending?.uid === me || (g.status === 'exchange' && !!g.exchange?.[me] && !g.exchange[me].done));
+  }
+
+  notifyTurn() {
+    if (!this.isMyTurn(this.ctrl.game)) return;
+    if (this.settings.vibrate) navigator.vibrate?.(40);
+    sound.play('turn');
+    banner('あなたの番', 'gold turn');
   }
 
   async runQueue() {
     this.running = true;
     while (this.queue.length) {
-      const { prev, game } = this.queue.shift();
+      const { prev, game, notify } = this.queue.shift();
       const animate = prev && game.seq === prev.seq + 1 && this.queue.length < 3 && document.visibilityState === 'visible';
       try {
         if (animate) await this.playEvents(prev, game);
@@ -176,6 +181,7 @@ export class GameView {
       }
       this.render(game);
       this.afterEvents(prev, game, animate);
+      if (notify) this.notifyTurn();
     }
     this.running = false;
   }
@@ -201,6 +207,7 @@ export class GameView {
     this.el.no.textContent = `第${g.gameNo}ゲーム`;
     this.renderSeats(g);
     this.renderField(g.field);
+    this.renderBombMemo(g.bombNotes);
     this.renderBadges(g);
     this.renderStatus(g);
     this.renderMe(g);
@@ -339,6 +346,16 @@ export class GameView {
       <div class="badges zoom-badges">${this.el.badges.innerHTML}</div>
       <p class="muted small center-text">それより前に出たカードは表示しません。</p>`;
     openModal(body);
+  }
+
+  // この場でボンバーされた数字を、場の端にメモ書きのように出す(場が流れたら消える)
+  renderBombMemo(notes) {
+    const ranks = [];
+    for (const n of notes || []) for (const r of n.ranks || []) if (!ranks.includes(r)) ranks.push(r);
+    this.el.bombMemo.classList.toggle('show', ranks.length > 0);
+    this.el.bombMemo.innerHTML = ranks.length
+      ? `<small>ボンバー済み</small><b>${ranks.map((r) => esc(bombRankLabel(r))).join('・')}</b>`
+      : '';
   }
 
   renderBadges(g) {
@@ -725,7 +742,10 @@ export class GameView {
 
   async playEvents(prev, g) {
     let field = [...prev.field];
+    let bombNotes = [...(prev.bombNotes || [])];
     const tasks = [];
+    const hasPass = g.events.some((e) => e.t === 'pass');
+    const hasSkip = g.events.some((e) => e.t === 'skip');
     for (const ev of g.events) {
       switch (ev.t) {
         case 'deal':
@@ -756,19 +776,29 @@ export class GameView {
           break;
         }
         case 'pass':
+          sound.play('pass');
           bubble(this.seatEl(ev.uid), ev.forced ? 'パス(代理)' : ev.lead ? 'パス(出せる手なし)' : 'パス', 'pass');
           break;
         case 'skip':
           for (const u of ev.skipped || []) bubble(this.seatEl(u), 'スキップ', 'skip');
           break;
-        case 'flow':
-          if (ev.reason === 'noNext') this.fx('流れ', '');
-          await wait(ev.reason === 'eight' ? 450 : 250);
+        case 'flow': {
+          // パスが1周して流れたときはすぐ。8切りなど自動で流れたときは、理由を出して少し待つ
+          const why = this.flowReason(ev, field, hasPass, hasSkip);
+          if (why) {
+            this.el.fieldInfo.innerHTML = `<span class="flow-reason">${esc(why)}</span>`;
+            await wait(1400);
+          } else {
+            await wait(250);
+          }
           sound.play('flow');
           await sweep(this.el.field, ev.reason === 'eight');
           field = [];
+          bombNotes = [];
+          this.renderBombMemo(bombNotes);
           this.el.fieldInfo.innerHTML = '';
           break;
+        }
         case 'give': {
           const from = this.seatRect(ev.uid), to = this.seatRect(ev.to);
           const w = Math.max(28, this.fieldCardWidth() * 0.6);
@@ -794,7 +824,9 @@ export class GameView {
           break;
         }
         case 'bomb':
-          this.fx(`ボンバー:${ev.ranks.map((r) => (r === 'JK' ? 'ジョーカー' : r === 'T' ? '10' : r)).join('・')}`, 'orange');
+          this.fx(`ボンバー:${ev.ranks.map(bombRankLabel).join('・')}`, 'orange');
+          bombNotes = [...bombNotes, { by: ev.uid, ranks: ev.ranks }];
+          this.renderBombMemo(bombNotes);
           break;
         case 'ochi':
           this.fx(`${this.name(ev.uid)} 都落ち…`, 'purple');
@@ -808,6 +840,17 @@ export class GameView {
       }
     }
     await Promise.all(tasks);
+  }
+
+  // 自動で流れた理由(パスで流れたときは null)
+  flowReason(ev, field, hasPass, hasSkip) {
+    if (ev.reason === 'eight') {
+      const t = field[field.length - 1], u = field[field.length - 2];
+      const spe3 = t && u && t.cards.length === 1 && t.cards[0] === 'S3' && u.cards.length === 1 && u.cards[0].startsWith('JK');
+      return spe3 ? 'スペ3返しで流れます' : '8切りで流れます';
+    }
+    if (ev.reason === 'round' && !hasPass) return hasSkip ? '5スキップで1周したので流れます' : '1周したので流れます';
+    return null;
   }
 
   afterEvents(prev, g, animated) {

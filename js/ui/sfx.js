@@ -304,6 +304,39 @@ export const SFX = {
       },
     },
   },
+  pass: {
+    label: 'パス',
+    when: 'だれかがパスしたとき',
+    items: {
+      A: {
+        name: 'トントン(テーブルをたたく)',
+        desc: '指でテーブルを2回軽くたたく音。パスの合図',
+        len: 0.3,
+        play(b, t) {
+          for (const s of [0, 0.11]) {
+            tone(b, { t: t + s, freq: 210, freqEnd: 150, dur: 0.07, gain: 0.09, attack: 0.002 });
+            burst(b, { t: t + s, dur: 0.03, type: 'lowpass', freq: 900, gain: 0.1, attack: 0.001 });
+          }
+        },
+      },
+      B: {
+        name: 'ポッ',
+        desc: '小さく低めの電子音。目立たない',
+        len: 0.25,
+        play(b, t) {
+          tone(b, { t, freq: 520, freqEnd: 400, dur: 0.09, gain: 0.13, attack: 0.006 });
+        },
+      },
+      C: {
+        name: 'スッ(ため息)',
+        desc: 'やわらかく短いかすれ音',
+        len: 0.25,
+        play(b, t) {
+          burst(b, { t, dur: 0.12, freq: 1500, freqEnd: 1100, q: 0.9, gain: 0.34, attack: 0.04 });
+        },
+      },
+    },
+  },
   flow: {
     label: '場が流れる',
     when: '全員パスや8切りで場のカードが片付けられるとき',

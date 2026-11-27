@@ -116,7 +116,7 @@ test('5スキップ:上がった人は数えず、パスした人は数える', 
 });
 
 test('革命と革命返し、場が流れても革命は続く', () => {
-  const s = sim(['a', 'b'], { a: ['S9', 'ST', 'SJ', 'SQ', 'H3', 'H4', 'H5'], b: ['D8', 'D9', 'DT', 'DJ', 'C4'] });
+  const s = sim(['a', 'b'], { a: ['S9', 'ST', 'SJ', 'SQ', 'H3', 'H4', 'H5'], b: ['D8', 'D9', 'DT', 'DJ', 'C4', 'C6'] });
   act(s, 'a', { type: 'play', cards: ['S9', 'ST', 'SJ', 'SQ'] });
   assert.equal(s.game.effects.revolution, true);
   // 10捨て → ボンバーの順
@@ -125,11 +125,19 @@ test('革命と革命返し、場が流れても革命は続く', () => {
   assert.equal(s.game.pending.type, 'bomb');
   act(s, 'a', { type: 'bomb', ranks: ['K'] });
   autoBomb(s);
+  // ボンバーの数字は場が流れるまでメモとして残る
+  assert.deepEqual(s.game.bombNotes, [{ by: 'a', ranks: ['K'] }]);
   assert.equal(s.game.elevenBack, undefined);
   assert.equal(s.game.effects.elevenBack, false);
   assert.equal(s.game.turn, 'b');
   act(s, 'b', { type: 'play', cards: ['D8', 'D9', 'DT', 'DJ'] });
   assert.equal(s.game.effects.revolution, false);
+  // 10捨てのあと8切りで流れたらメモも消える
+  assert.equal(s.game.pending.type, 'ten');
+  assert.equal(s.game.bombNotes.length, 1);
+  act(s, 'b', { type: 'ten', cards: ['C4'] });
+  assert.equal(s.game.field.length, 0);
+  assert.deepEqual(s.game.bombNotes, []);
 });
 
 test('11バックは場が流れると戻る。革命中は打ち消し合う', () => {

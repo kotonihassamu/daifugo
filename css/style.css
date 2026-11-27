@@ -490,3 +490,17 @@ body.revolution .table.revolution .felt { background: radial-gradient(90% 70% at
   .logo-fan .card { animation: none; }
   .turn-banner, .play-btn.ready { animation: none; }
 }
+
+/* 12ボンバーで指定された数字のメモ(場が流れるまで) */
+.bomb-memo { position: absolute; left: -6%; top: -6px; display: none; flex-direction: column; align-items: flex-start; padding: 4px 8px 5px; background: #fff7d6; color: #5a3b00; border-radius: 3px; box-shadow: 0 2px 5px rgba(0,0,0,.35); transform: rotate(-5deg); z-index: 20; line-height: 1.15; max-width: 46%; }
+.bomb-memo.show { display: flex; }
+.bomb-memo::before { content: ''; position: absolute; top: -5px; left: 50%; width: 26px; height: 9px; margin-left: -13px; background: rgba(255,255,255,.55); transform: rotate(3deg); }
+.bomb-memo small { font-size: 10px; font-weight: 700; color: #b45309; }
+.bomb-memo b { font-size: 15px; font-weight: 800; letter-spacing: .02em; }
+/* 自動で流れた理由 */
+.flow-reason { display: inline-block; background: rgba(0,0,0,.55); color: #ffe27a; font-weight: 800; font-size: 14px; padding: 3px 10px; border-radius: 999px; }
+@media (min-width: 700px) and (min-height: 600px) {
+  .bomb-memo b { font-size: 19px; }
+  .bomb-memo small { font-size: 12px; }
+  .flow-reason { font-size: 17px; }
+}
