@@ -1,11 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
 import { SFX, dealPace } from '../js/ui/sfx.js';
 import { CHOSEN } from '../js/ui/sound.js';
 
 test('ゲームで使う効果音はすべて候補にある', () => {
   for (const [kind, v] of Object.entries(CHOSEN)) {
     if (v === null) continue;
+    if (v === 'file') {
+      assert.ok(existsSync(new URL(`../sounds/${kind}.mp3`, import.meta.url)), `${kind}.mp3`);
+      continue;
+    }
     assert.ok(SFX[kind]?.items?.[v], `${kind}:${v}`);
   }
 });
