@@ -1,6 +1,6 @@
 // ゲーム画面:テーブル配置・場・手札・操作ボタン・演出
 import { sortCards, cardLabel, rankLabel } from '../cards.js';
-import { interpretations, canPlay, legalPlays, direction, describeCombo, lockLabel, requiredNumber, noNextNumber, forbiddenFinish, isAllJoker } from '../rules.js';
+import { interpretations, canPlay, legalPlays, direction, describeCombo, suitLockText, numberLockText, forbiddenFinish, isAllJoker } from '../rules.js';
 import { canPassNow, TITLES, fieldTop } from '../engine.js';
 import { cardSvg } from './card-svg.js';
 import { flyFrom, flyCard, banner, revolutionFlash, bubble, sweep, dropBadge, reduceMotion, wait } from './anim.js';
@@ -363,12 +363,10 @@ export class GameView {
     const e = g.effects;
     if (e.revolution) b.push('<span class="badge red">革命中</span>');
     if (e.elevenBack) b.push('<span class="badge purple">11バック</span>');
-    if (e.suitLock) b.push(`<span class="badge blue">縛り ${lockLabel(e.suitLock)}</span>`);
+    if (e.suitLock) b.push(`<span class="badge blue">${esc(suitLockText(e.suitLock, fieldTop(g)))}</span>`);
     if (e.numberLock) {
-      const top = fieldTop(g);
-      const r = requiredNumber(top, e);
-      const none = noNextNumber(top, e);
-      b.push(`<span class="badge blue">数字縛り${r ? ` 次は${rankLabel(r)}` : none ? ' 次はジョーカーのみ' : ''}</span>`);
+      const next = numberLockText(fieldTop(g), e);
+      b.push(`<span class="badge blue">数字縛り${next ? ' ' + esc(next) : ''}</span>`);
     }
     this.el.badges.innerHTML = b.join('');
     this.el.sideBadges.innerHTML = b.join(''); // 横向きでは右の列に出す
@@ -769,7 +767,7 @@ export class GameView {
               revolutionFlash();
               sound.play('revolution');
             }
-            const t = f === 'suitLock' ? `縛り ${lockLabel(g.effects.suitLock || [])}` : text;
+            const t = f === 'suitLock' ? suitLockText(g.effects.suitLock || [], ev) : f === 'numberLock' ? `数字縛り ${numberLockText(ev, g.effects)}`.trim() : text;
             this.fx(t, cls);
           }
           this.renderBadges({ ...g, field });
