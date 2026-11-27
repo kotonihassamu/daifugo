@@ -5,7 +5,7 @@ import { CpuManager } from './cpu/manager.js';
 import { TITLES } from './engine.js';
 import { SVG_DEFS, cardSvg } from './ui/card-svg.js';
 import { GameView } from './ui/game-view.js';
-import { sound } from './ui/sound.js';
+import { sound, bgm } from './ui/sound.js';
 import { esc, toast, openModal, closeModal } from './ui/dom.js';
 import { rulesHtml } from './ui/rules-text.js';
 import { cardLabel } from './cards.js';
@@ -15,13 +15,14 @@ const app = document.getElementById('app');
 const SETTINGS_KEY = 'daifugo-settings';
 const NAME_KEY = 'daifugo-name';
 
-const settings = Object.assign({ sort: 'strength', hint: false, sound: true, vibrate: true }, readJson(SETTINGS_KEY));
+const settings = Object.assign({ sort: 'strength', hint: false, sound: true, bgm: true, vibrate: true }, readJson(SETTINGS_KEY));
 // 効果音を作り直したので、以前の「初期OFF」で保存された設定は一度だけONに戻す
 if (!settings.sfx2) {
   settings.sound = true;
   settings.sfx2 = true;
 }
 sound.enabled = settings.sound;
+bgm.enabled = settings.bgm;
 
 function readJson(k) {
   try { return JSON.parse(localStorage.getItem(k)) || {}; } catch { return {}; }
@@ -29,6 +30,7 @@ function readJson(k) {
 function saveSettings() {
   try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
   sound.enabled = settings.sound;
+  bgm.enabled = settings.bgm;
 }
 const savedName = () => {
   try { return localStorage.getItem(NAME_KEY) || ''; } catch { return ''; }
@@ -68,6 +70,7 @@ async function boot() {
     return;
   }
   ctrl = new RoomController(backend);
+  bgm.setClock(() => Date.now() + (backend.serverOffset?.() || 0));
   window.__daifugo = { ctrl, cpus, get view() { return view; } }; // デバッグ用
   wire();
   ctrl.cleanupOldRooms();
@@ -99,6 +102,9 @@ function wire() {
       cpus.restore(ctrl.roomId).catch(() => {});
     }
     const g = ctrl.game;
+    // BGM:ゲーム開始とともに流し、結果・待合室では止める
+    if (g && (g.status === 'playing' || g.status === 'exchange') && typeof g.startedAt === 'number' && ctrl.roomId) bgm.play(g.startedAt);
+    else bgm.stop();
     if (ctrl.inGame) {
       clearTimeout(toLobbyTimer);
       toLobbyTimer = null;
@@ -172,6 +178,7 @@ function showTop() {
   view?.destroy();
   view = null;
   screen = 'top';
+  bgm.stop(0.5);
   setUrl(null);
   releaseWake();
   const fan = ['SA', 'HK', 'JK1', 'DQ', 'C2'].map((c, i) => `<div class="card" style="--i:${i - 2}">${cardSvg(c)}</div>`).join('');
@@ -342,6 +349,14 @@ function renderLobby() {
       </div>
       <p class="muted small">そのほかのルールは「ルール」ボタンで確認できます。</p>
     </section>
+    <section class="panel settings-panel">
+      <h2>この端末の設定</h2>
+      ${[['bgm', 'BGM'], ['sound', '効果音']].map(([k, l]) => `<div class="setting-row">
+        <span class="setting-name">${l}</span>
+        <div class="seg">${[[true, 'オン'], [false, 'オフ']].map(([v, t]) => `<button class="${!!settings[k] === v ? 'on' : ''}" data-act="pref" data-k="${k}" data-v="${v}">${t}</button>`).join('')}</div>
+      </div>`).join('')}
+      <p class="muted small">BGM はゲームが始まると流れます。ゲーム中もメニュー(≡)から切り替えられます。</p>
+    </section>
     <div class="lobby-actions">
       ${ctrl.isHost
         ? `<button class="btn primary big wide" data-act="start" ${seated.length < 2 ? 'disabled' : ''}>ゲーム開始(${seated.length}人)</button>
@@ -371,6 +386,12 @@ function renderLobby() {
       }
       if (act === 'jokers') await ctrl.setRule('jokers', Number(btn.dataset.n));
       if (act === 'numberLock') await ctrl.setRule('numberLock', btn.dataset.v === 'true');
+      if (act === 'pref') {
+        settings[btn.dataset.k] = btn.dataset.v === 'true';
+        saveSettings();
+        if (btn.dataset.k === 'sound' && settings.sound) sound.play('turn');
+        renderLobby();
+      }
       if (act === 'start') await ctrl.startGame();
       if (act === 'takeHost') await ctrl.takeHost();
       if (act === 'leave') {
@@ -467,6 +488,7 @@ function openMenu() {
       <label class="switch"><span>並び順</span>
         <select name="sort"><option value="strength">強さ順</option><option value="suit">マーク順</option></select></label>
       <label class="switch"><span>出せるカードのヒント</span><input type="checkbox" name="hint"></label>
+      <label class="switch"><span>BGM</span><input type="checkbox" name="bgm"></label>
       <label class="switch"><span>効果音</span><input type="checkbox" name="sound"></label>
       <label class="switch"><span>振動(対応端末のみ)</span><input type="checkbox" name="vibrate"></label>
     </div>
@@ -476,7 +498,7 @@ function openMenu() {
     <button class="btn ghost wide" data-act="leave">部屋を出る</button>
     <p class="muted small">ゲーム中に部屋を出ても席は残ります。同じURLから戻れます。</p>`;
   body.querySelector('[name=sort]').value = settings.sort;
-  for (const k of ['hint', 'sound', 'vibrate']) body.querySelector(`[name=${k}]`).checked = !!settings[k];
+  for (const k of ['hint', 'bgm', 'sound', 'vibrate']) body.querySelector(`[name=${k}]`).checked = !!settings[k];
   body.onchange = (e) => {
     const t = e.target;
     settings[t.name] = t.type === 'checkbox' ? t.checked : t.value;

@@ -31,10 +31,14 @@ export async function createFirebaseBackend(config, mods = null) {
   });
 
   let presenceOff = null;
+  let serverOffset = 0;
+  onValue(ref(db, '.info/serverTimeOffset'), (snap) => { serverOffset = Number(snap.val()) || 0; }, () => {});
   return {
     kind: 'firebase',
     uid,
     serverTime: () => serverTimestamp(),
+    // サーバー時刻と端末の時計の差(ミリ秒)
+    serverOffset: () => serverOffset,
     increment: (n) => increment(n),
     newKey: () => push(ref(db, 'keys')).key,
     on(path, cb, onError) {
