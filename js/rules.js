@@ -42,8 +42,8 @@ export function interpretations(codes) {
     const eff = cs.map((c) => (c.joker ? { ...c, rank: r } : { ...c }));
     out.push(mk('group', eff, r, jokers.map(() => r)));
   }
-  // 階段 3 枚以上(3〜2、一周なし)
-  if (n >= 3) {
+  // 階段:同じマークの連続した数字 3 枚以上(3〜2、一周なし)。ジョーカーはそのマークの代わり
+  if (n >= 3 && new Set(normals.map((c) => c.suit)).size === 1) {
     const ranks = normals.map((c) => c.rank);
     if (new Set(ranks).size === ranks.length) {
       const minN = Math.min(...ranks), maxN = Math.max(...ranks);
@@ -172,8 +172,8 @@ export function effectsOf(combo) {
     if (e.rank === 8) fx.eight = true;
     if (e.rank === 11 && combo.type !== 'seq') fx.jack = true;
   }
-  // 階段の革命は同じマークの4枚以上のみ(ジョーカーはそのマークの代わりになる)
-  fx.revolution = (combo.type === 'group' && combo.size === 4) || (combo.type === 'seq' && combo.size >= 4 && new Set(concreteSuits(combo)).size <= 1);
+  // 革命:同じ数字4枚、または4枚以上の階段(階段は同じマークのみなので、4枚以上なら必ず革命)
+  fx.revolution = (combo.type === 'group' && combo.size === 4) || (combo.type === 'seq' && combo.size >= 4);
   return fx;
 }
 
@@ -247,60 +247,33 @@ export function legalPlays(hand, top, effects, limit = 400) {
     }
     return result;
   }
-  // 階段
-  for (let low = 3; low + size - 1 <= 15; low++) {
-    const window = [];
-    for (let r = low; r < low + size; r++) window.push(r);
-    const missing = window.filter((r) => !byRank[r]);
-    if (missing.length > jokers.length) continue;
-    // ジョーカーを置く数字の組(足りない数字は必ず埋める。余ったジョーカーは既にある数字の代わりにもできる)
-    const extra = window.filter((r) => byRank[r]);
-    const placements = [missing];
-    const spare = jokers.length - missing.length;
-    if (spare >= 1) for (const r of extra) placements.push([...missing, r]);
-    if (spare >= 2) for (const pr of combinations(extra, 2)) placements.push([...missing, ...pr]);
-    for (const P of placements) {
-      if (P.length >= size) continue;
-      const probe = { type: 'seq', size, low, jr: P, eff: window.map((r) => ({ rank: r, suit: null, joker: true })) };
-      // 強さと数字縛りだけを先に確認(マークは後で)
-      if (!canPlay(probe, top, { ...effects, suitLock: null })) continue;
-      let ji = 0;
-      const slots = window.map((r) => (P.includes(r) ? [jokers[ji++]] : byRank[r]));
-      if (!effects?.suitLock) {
-        const codes = slots.map((s) => s[0]);
+  // 階段:同じマークの連続した数字(ジョーカーは足りない数字の代わり)
+  const bySuitRank = {};
+  for (const code of hand) {
+    const c = parseCard(code);
+    if (!c.joker) (bySuitRank[c.suit] ||= {})[c.rank] = code;
+  }
+  for (const suit of Object.keys(bySuitRank)) {
+    // マーク縛り中は縛りのマークだけ(階段の縛りは同じマークのみなので1種類)
+    if (effects?.suitLock && !effects.suitLock.every((s) => s === suit)) continue;
+    const have = bySuitRank[suit];
+    for (let low = 3; low + size - 1 <= 15; low++) {
+      const window = [];
+      for (let r = low; r < low + size; r++) window.push(r);
+      const missing = window.filter((r) => !have[r]);
+      if (missing.length > jokers.length) continue;
+      // ジョーカーを置く数字の組(足りない数字は必ず埋める。余ったジョーカーは既にある数字の代わりにもできる)
+      const extra = window.filter((r) => have[r]);
+      const placements = [missing];
+      const spare = jokers.length - missing.length;
+      if (spare >= 1) for (const r of extra) placements.push([...missing, r]);
+      if (spare >= 2) for (const pr of combinations(extra, 2)) placements.push([...missing, ...pr]);
+      for (const P of placements) {
+        if (P.length >= size) continue;
+        let ji = 0;
+        const codes = window.map((r) => (P.includes(r) ? jokers[ji++] : have[r]));
         for (const cb of interpretations(codes)) if (cb.type === 'seq' && cb.low === low) add(codes, cb);
-        if (!finishes(codes)) for (const s of slots) for (const c of s) result.cards.add(c);
-        continue;
       }
-      // マーク縛り中は組み合わせを探索
-      const counts = {};
-      for (const s of effects.suitLock) counts[s] = (counts[s] || 0) + 1;
-      const acc = [];
-      let found = 0;
-      const rec = (i) => {
-        if (found > 50) return;
-        if (i === slots.length) {
-          const codes = [...acc];
-          for (const cb of interpretations(codes)) if (cb.type === 'seq' && cb.low === low) add(codes, cb);
-          found++;
-          return;
-        }
-        for (const code of slots[i]) {
-          const c = parseCard(code);
-          if (c.joker) {
-            acc.push(code);
-            rec(i + 1);
-            acc.pop();
-          } else if (counts[c.suit] > 0) {
-            counts[c.suit]--;
-            acc.push(code);
-            rec(i + 1);
-            acc.pop();
-            counts[c.suit]++;
-          }
-        }
-      };
-      rec(0);
     }
   }
   return result;

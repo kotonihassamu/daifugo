@@ -63,10 +63,12 @@ test('パスは何回でもできる', () => {
   assert.throws(() => act(s, 'a', { type: 'pass' }), RuleError);
 });
 
-test('階段の革命は同じマークの4枚以上だけ', () => {
+test('階段は同じマークの3枚以上、4枚以上なら革命', () => {
   const s = sim(['a', 'b'], { a: ['S3', 'S4', 'H5', 'S6', 'C9'], b: ['HK'] });
-  act(s, 'a', { type: 'play', cards: ['S3', 'S4', 'H5', 'S6'] });
-  assert.equal(s.game.effects.revolution, false);
+  assert.throws(() => act(s, 'a', { type: 'play', cards: ['S3', 'S4', 'H5', 'S6'] }), RuleError); // マークが混ざった階段は出せない
+  const u = sim(['a', 'b'], { a: ['S3', 'S4', 'S5', 'C9'], b: ['HK'] });
+  act(u, 'a', { type: 'play', cards: ['S3', 'S4', 'S5'] });
+  assert.equal(u.game.effects.revolution, false); // 3枚は革命なし
   const t = sim(['a', 'b'], { a: ['S3', 'S4', 'JK1', 'S6', 'C9'], b: ['HK'] });
   act(t, 'a', { type: 'play', cards: ['S3', 'S4', 'JK1', 'S6'] });
   assert.equal(t.game.effects.revolution, true); // ジョーカーはそのマークの代わり

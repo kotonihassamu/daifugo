@@ -39,17 +39,21 @@ export function leadPlays(hand, effects) {
     }
   }
   if (jokers.length >= 2) out.push(jokers.slice(0, 2));
-  // 階段:同じマークでなくてよいので、数字ごとに1枚を使う
-  for (let len = 3; len <= 13; len++) {
-    for (let low = 3; low + len - 1 <= 15; low++) {
-      const cards = [];
-      let jk = 0;
-      for (let r = low; r < low + len; r++) {
-        if (byRank[r]) cards.push(byRank[r][0]);
-        else if (jk < jokers.length) cards.push(jokers[jk++]);
-        else { cards.length = 0; break; }
+  // 階段:同じマークの連続した数字(足りない数字はジョーカーで埋める)
+  const bySuit = {};
+  for (const c of hand) if (!isJk(c)) (bySuit[c[0]] ||= {})[parseCard(c).rank] = c;
+  for (const have of Object.values(bySuit)) {
+    for (let len = 3; len <= 13; len++) {
+      for (let low = 3; low + len - 1 <= 15; low++) {
+        const cards = [];
+        let jk = 0;
+        for (let r = low; r < low + len; r++) {
+          if (have[r]) cards.push(have[r]);
+          else if (jk < jokers.length) cards.push(jokers[jk++]);
+          else { cards.length = 0; break; }
+        }
+        if (cards.length === len && cards.some((c) => !isJk(c))) out.push(cards);
       }
-      if (cards.length === len && cards.some((c) => !isJk(c))) out.push(cards);
     }
   }
   return out;
