@@ -15,7 +15,12 @@ const app = document.getElementById('app');
 const SETTINGS_KEY = 'daifugo-settings';
 const NAME_KEY = 'daifugo-name';
 
-const settings = Object.assign({ sort: 'strength', hint: false, sound: false, vibrate: true }, readJson(SETTINGS_KEY));
+const settings = Object.assign({ sort: 'strength', hint: false, sound: true, vibrate: true }, readJson(SETTINGS_KEY));
+// 効果音を作り直したので、以前の「初期OFF」で保存された設定は一度だけONに戻す
+if (!settings.sfx2) {
+  settings.sound = true;
+  settings.sfx2 = true;
+}
 sound.enabled = settings.sound;
 
 function readJson(k) {
@@ -97,11 +102,14 @@ function wire() {
     if (ctrl.inGame) {
       clearTimeout(toLobbyTimer);
       toLobbyTimer = null;
+      let fresh = false;
       if (screen !== 'game') {
+        // 待合室から開始したとき(再読み込みでの途中参加ではない)
+        fresh = screen === 'lobby';
         closeModal(true);
         showGame();
       }
-      view.onRoom(e.detail);
+      view.onRoom({ ...e.detail, fresh });
     } else if (screen === 'game' && g?.status === 'result' && e.detail.prev && e.detail.prev.status !== 'result') {
       // 最後の一手を見せてから待合室へ
       view.onRoom(e.detail);

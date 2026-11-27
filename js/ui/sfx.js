@@ -54,6 +54,13 @@ function route(b, node, rev = 0) {
 
 const rnd = (a, b) => a + Math.random() * (b - a);
 
+// 配る音の回数と間隔。cards(1人に配る枚数)があれば、手札が飛んでくる時間(1枚45ms)に合わせて増減する
+export function dealPace(cards, gap, n) {
+  if (!cards) return { n, gap };
+  const span = Math.max(0, cards - 1) * 0.045;
+  return { n: Math.max(3, Math.min(14, Math.round(span / gap) + 1)), gap };
+}
+
 // フィルターをかけたノイズの短い音(シュッ・パサッ・カチッ)
 function burst(b, { t, dur, type = 'bandpass', freq = 3000, freqEnd, q = 1, gain = 0.4, attack = 0.004, rev = 0 }) {
   const { ctx } = b;
@@ -167,8 +174,9 @@ export const SFX = {
         name: 'シュシュシュッ(軽快)',
         desc: '高めのシュッを14回すばやく。テンポよく配る感じ',
         len: 0.85,
-        play(b, t) {
-          for (let i = 0; i < 14; i++) burst(b, { t: t + i * 0.055 + rnd(0, 0.008), dur: 0.065, freq: 2200, freqEnd: 5200, q: 1.4, gain: rnd(0.4, 0.55), attack: 0.02 });
+        play(b, t, o = {}) {
+          const { n, gap } = dealPace(o.cards, 0.055, 14);
+          for (let i = 0; i < n; i++) burst(b, { t: t + i * gap + rnd(0, 0.008), dur: 0.065, freq: 2200, freqEnd: 5200, q: 1.4, gain: rnd(0.4, 0.55), attack: 0.02 });
         },
       },
       B: {
@@ -188,9 +196,10 @@ export const SFX = {
         name: 'シャッ・トッ(1枚ずつ)',
         desc: '低めのシャッ+着地のトッを6回。ゆったり配る感じ',
         len: 0.9,
-        play(b, t) {
-          for (let i = 0; i < 6; i++) {
-            const s = t + i * 0.13;
+        play(b, t, o = {}) {
+          const { n, gap } = dealPace(o.cards, o.cards ? 0.11 : 0.13, 6);
+          for (let i = 0; i < n; i++) {
+            const s = t + i * gap;
             burst(b, { t: s, dur: 0.09, freq: 900, freqEnd: 3600, q: 0.9, gain: 0.4, attack: 0.03 });
             burst(b, { t: s + 0.085, dur: 0.03, type: 'lowpass', freq: 1500, gain: 0.3, attack: 0.002 });
           }
@@ -291,6 +300,38 @@ export const SFX = {
           burst(b, { t, dur: 0.13, type: 'lowpass', freq: 700, freqEnd: 3500, gain: 0.2, attack: 0.06 });
           tone(b, { t: t + 0.12, freq: 190, freqEnd: 120, dur: 0.1, gain: 0.25, attack: 0.003 });
           burst(b, { t: t + 0.12, dur: 0.02, freq: 1500, gain: 0.18, attack: 0.001 });
+        },
+      },
+    },
+  },
+  flow: {
+    label: '場が流れる',
+    when: '全員パスや8切りで場のカードが片付けられるとき',
+    items: {
+      A: {
+        name: 'サーッ',
+        desc: 'カードを払いのけるやわらかいかすれ音。控えめ',
+        len: 0.5,
+        play(b, t) {
+          burst(b, { t, dur: 0.34, freq: 2600, freqEnd: 700, q: 0.8, gain: 0.25, attack: 0.12 });
+        },
+      },
+      B: {
+        name: 'シャラララ',
+        desc: '場のカードをまとめて集める細かい音',
+        len: 0.5,
+        play(b, t) {
+          for (let i = 0; i < 5; i++) burst(b, { t: t + i * 0.042, dur: 0.05, freq: 4200 - i * 500, q: 1.1, gain: 0.5 - i * 0.06, attack: 0.008 });
+          burst(b, { t: t + 0.22, dur: 0.035, type: 'lowpass', freq: 1300, gain: 0.45, attack: 0.002 });
+        },
+      },
+      C: {
+        name: 'ポロン',
+        desc: '下がる2音のやさしいチャイム。「仕切り直し」の合図',
+        len: 0.8,
+        play(b, t) {
+          bell(b, { t, freq: N.E6, dur: 0.6, gain: 0.05, rev: 0.25 });
+          bell(b, { t: t + 0.11, freq: N.B5, dur: 0.7, gain: 0.05, rev: 0.25 });
         },
       },
     },
@@ -449,10 +490,37 @@ export const SFX = {
 
 export const SFX_KINDS = Object.keys(SFX);
 
-// 鳴らす。戻り値は長さ(秒)。鳴らせなければ 0
-export function playSfx(bus, kind, variant, delay = 0) {
+// 鳴らす。戻り値は長さ(秒)。鳴らせなければ 0。opts は種類ごとの追加情報(配る:{cards})
+export function playSfx(bus, kind, variant, delay = 0, opts = {}) {
   const item = SFX[kind]?.items?.[variant];
   if (!item || !bus) return 0;
-  item.play(bus, bus.ctx.currentTime + 0.02 + delay);
+  item.play(bus, bus.ctx.currentTime + 0.02 + delay, opts);
   return item.len;
+}
+
+// 自分の番のお知らせ(小さな2音)
+export function playTurn(bus) {
+  const t = bus.ctx.currentTime + 0.02;
+  tone(bus, { t, freq: 660, dur: 0.16, gain: 0.09, attack: 0.01 });
+  tone(bus, { t: t + 0.09, freq: 880, dur: 0.2, gain: 0.09, attack: 0.01 });
+}
+
+// 一時的なまとまり(途中で止められる)。stop() で素早く消す
+export function subBus(bus) {
+  const { ctx } = bus;
+  const out = ctx.createGain();
+  const rev = ctx.createGain();
+  out.connect(bus.out);
+  rev.connect(bus.rev);
+  return {
+    bus: { ctx, out, rev, master: bus.master },
+    stop() {
+      const t = ctx.currentTime;
+      for (const g of [out, rev]) {
+        g.gain.setValueAtTime(g.gain.value, t);
+        g.gain.linearRampToValueAtTime(0, t + 0.08);
+      }
+      setTimeout(() => { out.disconnect(); rev.disconnect(); }, 200);
+    },
+  };
 }

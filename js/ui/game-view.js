@@ -144,8 +144,10 @@ export class GameView {
   }
 
   // ---------- 状態更新 ----------
-  onRoom({ prev, game }) {
+  onRoom({ prev, game, fresh }) {
     if (!game) return;
+    // 待合室から始まった最初のゲームは直前の状態がないので、配る演出のために空の場を用意する
+    if (!prev && fresh && game.events?.some((ev) => ev.t === 'deal')) prev = { seq: game.seq - 1, field: [], status: 'lobby' };
     this.queue.push({ prev, game });
     this.renderControls(game);
     if (!this.running) this.runQueue();
@@ -516,8 +518,13 @@ export class GameView {
     const code = el.dataset.code;
     if (this.drag.visited.has(code)) return;
     this.drag.visited.add(code);
-    if (this.drag.mode) this.sel.add(code);
-    else this.sel.delete(code);
+    if (this.drag.mode) {
+      if (!this.sel.has(code)) sound.play('select');
+      this.sel.add(code);
+    } else {
+      if (this.sel.has(code)) sound.play('deselect');
+      this.sel.delete(code);
+    }
     this.layoutHand();
     this.renderControls(this.displayGame || this.ctrl.game);
   }
@@ -738,7 +745,10 @@ export class GameView {
           this.myPlayRects = null;
           for (const f of ev.fx || []) {
             const [text, cls] = FX_TEXT[f] || [f, ''];
-            if (f === 'revolution' || f === 'revolutionBack') revolutionFlash();
+            if (f === 'revolution' || f === 'revolutionBack') {
+              revolutionFlash();
+              sound.play('revolution');
+            }
             const t = f === 'suitLock' ? `縛り ${lockLabel(g.effects.suitLock || [])}` : text;
             this.fx(t, cls);
           }
@@ -802,6 +812,8 @@ export class GameView {
 
   afterEvents(prev, g, animated) {
     if (!animated) return;
+    if (g.events.some((ev) => ev.t === 'finish')) sound.play('finish');
+    if (g.events.some((ev) => ev.t === 'end' && !ev.stuck)) sound.play('end');
     for (const ev of g.events) {
       if (ev.t === 'finish') {
         dropBadge(this.seatEl(ev.uid), ev.place);
@@ -812,10 +824,14 @@ export class GameView {
   }
 
   async dealAnimation(g) {
+    // 配る音:1人に配る枚数に合わせて回数を変える(観戦中は一番多い人の枚数)
+    const cards = g.handCount?.[this.me] || Math.max(0, ...Object.values(g.handCount || {}));
+    const dealSound = sound.play('deal', { cards, delay: 0.15 });
     if (reduceMotion()) return;
     let skipped = false;
     const skip = () => {
       skipped = true;
+      dealSound.stop();
       document.getAnimations?.().forEach((a) => a.finish());
     };
     window.addEventListener('pointerdown', skip, { once: true });
