@@ -62,11 +62,13 @@ function setAt(tree, path, value) {
   else cur[last] = v;
 }
 
-export function createLocalBackend() {
-  let uid = sessionStorage.getItem('daifugo-local-uid');
+// opts.name: 別のプレイヤー(CPU など)として動かすときの名前。同じ名前なら同じIDになる
+export function createLocalBackend(opts = {}) {
+  const key = opts.name ? `daifugo-local-uid-${opts.name}` : 'daifugo-local-uid';
+  let uid = sessionStorage.getItem(key);
   if (!uid) {
     uid = 'L' + Math.random().toString(36).slice(2, 10);
-    sessionStorage.setItem('daifugo-local-uid', uid);
+    sessionStorage.setItem(key, uid);
   }
   const ch = 'BroadcastChannel' in window ? new BroadcastChannel('daifugo-local') : null;
   const listeners = new Set();
