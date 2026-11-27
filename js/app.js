@@ -1,6 +1,7 @@
 // 起動・画面遷移(トップ / 待合室 / ゲーム)
 import { firebaseConfig } from './config.js';
 import { RoomController } from './room.js';
+import { CpuManager } from './cpu/manager.js';
 import { TITLES } from './engine.js';
 import { SVG_DEFS, cardSvg } from './ui/card-svg.js';
 import { GameView } from './ui/game-view.js';
@@ -35,6 +36,8 @@ let ctrl = null;
 let view = null;
 let screen = null;
 let localMode = false;
+let cpus = null; // この端末で動かす CPU
+let cpuRestoredFor = null;
 let toLobbyTimer = null;
 
 document.body.insertAdjacentHTML('afterbegin', SVG_DEFS);
@@ -48,9 +51,11 @@ async function boot() {
     if (localMode) {
       const { createLocalBackend } = await import('./backend-local.js');
       backend = createLocalBackend();
+      cpus = new CpuManager(async (name) => createLocalBackend({ name }));
     } else {
       const { createFirebaseBackend } = await import('./backend-firebase.js');
       backend = await createFirebaseBackend(firebaseConfig);
+      cpus = new CpuManager((name) => createFirebaseBackend(firebaseConfig, { name }));
     }
   } catch (e) {
     console.error(e);
@@ -58,7 +63,7 @@ async function boot() {
     return;
   }
   ctrl = new RoomController(backend);
-  window.__daifugo = { ctrl, get view() { return view; } }; // デバッグ用
+  window.__daifugo = { ctrl, cpus, get view() { return view; } }; // デバッグ用
   wire();
   ctrl.cleanupOldRooms();
   const rid = params.get('r');
@@ -79,7 +84,15 @@ async function boot() {
 }
 
 function wire() {
+  cpus?.addEventListener('change', () => {
+    if (screen === 'lobby') renderLobby();
+  });
   ctrl.addEventListener('room', (e) => {
+    // この端末で動かしていた CPU を再開(再読み込みのあとなど)
+    if (cpus && ctrl.roomId && cpuRestoredFor !== ctrl.roomId) {
+      cpuRestoredFor = ctrl.roomId;
+      cpus.restore(ctrl.roomId).catch(() => {});
+    }
     const g = ctrl.game;
     if (ctrl.inGame) {
       clearTimeout(toLobbyTimer);
@@ -114,10 +127,12 @@ function wire() {
   });
   ctrl.addEventListener('closed', () => {
     toast('部屋がなくなりました');
+    cpus?.stopAll(null, { leave: false });
     goTop();
   });
   ctrl.addEventListener('kicked', () => {
     toast('部屋から外れました。招待URLからもう一度参加できます', 4000);
+    cpus?.stopAll(null, { leave: false });
     goTop();
   });
 }
@@ -325,6 +340,8 @@ function renderLobby() {
            ${seated.length < 2 ? '<p class="muted center-text small">参加者が2人以上になると開始できます</p>' : ''}`
         : `<p class="muted center-text">${meReady ? `参加します。ホスト(${esc(host?.name || '?')})の開始を待っています…` : '観戦します。次のゲームには入りません'}</p>
            <button class="btn ${meReady ? 'ghost' : 'primary big'} wide" data-act="ready">${meReady ? '観戦にする(見るだけ)' : '参加に戻す'}</button>`}
+      ${ctrl.isHost && cpus ? `<button class="btn wide" data-act="addCpu" ${players.length >= 8 ? 'disabled' : ''}>🤖 CPUを追加</button>
+        ${cpus.countFor(ctrl.roomId) ? `<p class="muted center-text small">この端末で CPU ${cpus.countFor(ctrl.roomId)}人が動いています。この画面を開いている間だけ動きます</p>` : ''}` : ''}
       <button class="btn wide" data-act="share">招待URLを送る</button>
       ${!ctrl.isHost && hostAway ? '<button class="btn wide" data-act="takeHost">ホストを引き継ぐ</button>' : ''}
       <button class="btn ghost wide" data-act="leave">部屋を出る</button>
@@ -340,18 +357,31 @@ function renderLobby() {
       if (act === 'result') showResult();
       if (act === 'ready') await ctrl.setReady(!meReady);
       if (act === 'kick') await ctrl.removePlayer(btn.dataset.uid);
+      if (act === 'addCpu') {
+        btn.disabled = true;
+        await cpus.add(ctrl.roomId, nextCpuName());
+      }
       if (act === 'jokers') await ctrl.setRule('jokers', Number(btn.dataset.n));
       if (act === 'numberLock') await ctrl.setRule('numberLock', btn.dataset.v === 'true');
       if (act === 'start') await ctrl.startGame();
       if (act === 'takeHost') await ctrl.takeHost();
       if (act === 'leave') {
+        await cpus?.stopAll(ctrl.roomId);
         await ctrl.leave();
         goTop();
       }
     } catch (err) {
       toast(err.message || String(err));
+      renderLobby();
     }
   };
+}
+
+// 空いている「CPU1」「CPU2」…の名前
+function nextCpuName() {
+  const names = new Set(ctrl.players.map((p) => p.name));
+  for (let i = 1; i <= 8; i++) if (!names.has(`CPU${i}`)) return `CPU${i}`;
+  return 'CPU';
 }
 
 async function share() {
@@ -465,6 +495,7 @@ function openMenu() {
       }
       if (act === 'leave') {
         closeModal(true);
+        await cpus?.stopAll(ctrl.roomId);
         await ctrl.leave();
         goTop();
       }

@@ -2,9 +2,10 @@
 const V = '10.14.1';
 const base = `https://www.gstatic.com/firebasejs/${V}`;
 
-// mods: テストなどでSDKを差し替えるとき用 { app, auth, db, setup(auth, db) }
+// mods: { name } で別のログイン(CPU など)を作る。テストでは SDK も差し替える { app, auth, db, setup(auth, db) }
+// 同じ name なら同じ匿名IDが端末に保存されるので、再読み込みしても同じ席に戻れる
 export async function createFirebaseBackend(config, mods = null) {
-  const [{ initializeApp }, authMod, dbMod] = mods
+  const [{ initializeApp, getApps }, authMod, dbMod] = mods?.app
     ? [mods.app, mods.auth, mods.db]
     : await Promise.all([
         import(`${base}/firebase-app.js`),
@@ -16,7 +17,8 @@ export async function createFirebaseBackend(config, mods = null) {
     getDatabase, ref, onValue, update, get, runTransaction, push, serverTimestamp, increment,
     onDisconnect, set, query, orderByChild, endAt, limitToFirst,
   } = dbMod;
-  const app = initializeApp(config, mods?.name);
+  const existing = mods?.name && getApps?.().find((a) => a.name === mods.name);
+  const app = existing || initializeApp(config, mods?.name);
   const auth = getAuth(app);
   const db = getDatabase(app);
   mods?.setup?.(auth, db);

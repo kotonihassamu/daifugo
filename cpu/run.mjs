@@ -17,8 +17,7 @@ import { firebaseConfig } from '../js/config.js';
 import { createFirebaseBackend } from '../js/backend-firebase.js';
 import { RoomController } from '../js/room.js';
 import { decide } from '../js/cpu/search.js';
-import { heuristicTurn, heuristicChoice, pendingDecision } from '../js/cpu/policy.js';
-import { cardLabel } from '../js/cards.js';
+import { CpuPlayer } from '../js/cpu/player.js';
 
 const args = process.argv.slice(2);
 const flag = (name) => args.includes(`--${name}`);
@@ -40,95 +39,9 @@ if (!/^\d{4}$/.test(code || '')) {
   process.exit(1);
 }
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const config = emulator
   ? { apiKey: 'demo-key', projectId: 'demo-daifugo', databaseURL: 'http://127.0.0.1:9000?ns=demo-daifugo-default-rtdb' }
   : firebaseConfig;
-
-function describe(action) {
-  if (!action) return '-';
-  if (action.type === 'play') return `出す ${action.cards.map(cardLabel).join(' ')}`;
-  if (action.type === 'pass') return 'パス';
-  if (action.cards) return `${{ seven: '7渡し', ten: '10捨て', exchangeReturn: '交換で返す' }[action.type] || action.type} ${action.cards.map(cardLabel).join(' ')}`;
-  if (action.ranks) return `ボンバー ${action.ranks.join('・')}`;
-  return action.type;
-}
-
-class CpuPlayer {
-  constructor(name, ctrl) {
-    this.name = name;
-    this.ctrl = ctrl;
-    this.busy = false;
-    this.timer = null;
-    this.stopped = false;
-  }
-
-  log(...m) {
-    console.log(`[${this.name}]`, ...m);
-  }
-
-  start() {
-    const kick = () => this.kick();
-    this.ctrl.addEventListener('room', kick);
-    this.ctrl.addEventListener('hand', kick);
-    this.ctrl.addEventListener('kicked', () => { this.log('部屋から外されました'); this.stopped = true; });
-    this.ctrl.addEventListener('closed', () => { this.log('部屋がなくなりました'); this.stopped = true; });
-  }
-
-  kick(delay = 80) {
-    if (this.stopped) return;
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.act().catch((e) => this.log('エラー', e.message)), delay);
-  }
-
-  async act() {
-    if (this.busy || this.stopped) return;
-    const ctrl = this.ctrl;
-    const g = ctrl.game;
-    const d = pendingDecision(g, ctrl.uid);
-    if (!d || d.kind === 'bombApply') return; // ボンバーの反映は RoomController が自動で行う
-    if (!ctrl.synced()) return this.kick(300); // 受け取ったカードの取り込み待ち
-    this.busy = true;
-    const seq = g.seq;
-    const hand = [...ctrl.hand];
-    const t0 = Date.now();
-    let action;
-    try {
-      action = decide(g, ctrl.uid, hand, { level, timeMs: thinkMs });
-    } catch (e) {
-      this.log('判断でエラー、ルールで打ちます:', e.message);
-      action = null;
-    }
-    if (!action) action = d.kind === 'turn' ? heuristicTurn(g, ctrl.uid, hand) : heuristicChoice(g, ctrl.uid, hand, d);
-    const took = Date.now() - t0;
-    await sleep(Math.max(0, minDelay - took) + Math.random() * 600);
-    try {
-      if (ctrl.game?.seq !== seq) return; // 考えている間に状態が変わった → やり直し
-      await this.perform(action, d, g, hand);
-      this.log(`${describe(action)}(考慮 ${took}ms)`);
-    } finally {
-      this.busy = false;
-      this.kick(150);
-    }
-  }
-
-  // 出せなかったら安全網(ルール → パス)で必ず進める
-  async perform(action, d, g, hand) {
-    const ctrl = this.ctrl;
-    const tries = [action];
-    if (d.kind === 'turn') tries.push(heuristicTurn(g, ctrl.uid, hand), { type: 'pass' });
-    else tries.push(heuristicChoice(g, ctrl.uid, hand, d));
-    for (const a of tries) {
-      try {
-        await ctrl.perform(a);
-        return;
-      } catch (e) {
-        if (e.conflict) return; // ほかの操作と重なった → 次の更新でやり直す
-        this.log(`「${describe(a)}」は出せません(${e.message})`);
-      }
-    }
-  }
-}
 
 async function main() {
   console.log(`部屋 ${code} に ${prefix} を ${count} 人参加させます(${level === 'easy' ? 'かんたん' : '先読み'})`);
@@ -151,9 +64,11 @@ async function main() {
     }
     const name = count === 1 && prefix !== 'CPU' ? prefix : `${prefix}${i}`;
     await ctrl.join(roomId, name.slice(0, 8), { cpu: true });
-    const p = new CpuPlayer(name, ctrl);
+    const p = new CpuPlayer(name, ctrl, {
+      decideAsync: async (g, uid, hand, opts) => decide(g, uid, hand, opts),
+      level, thinkMs, minDelay, log: (m) => console.log(m),
+    });
     p.start();
-    p.kick();
     players.push(p);
     console.log(`[${name}] 参加しました`);
   }
