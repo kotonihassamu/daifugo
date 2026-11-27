@@ -45,7 +45,7 @@ export function rulesHtml(cfg = { jokers: 2, numberLock: true }) {
   <ul class="point-list">
     <li><b>効果はすべて強制</b>:条件を満たすと必ず発動(選べない)</li>
     <li><b>縛りは「完全一致」だけ</b>:片縛りはなし</li>
-    <li><b>階段の革命は同じマークだけ</b>:マークが混ざった階段では起きない</li>
+    <li><b>階段は同じマークだけ</b>:同じマークの連続した数字3枚以上。4枚以上なら必ず革命</li>
     <li><b>禁止上がりあり</b>:最後の1手に 2(革命中は3)・ジョーカー・8・スペ3返し は使えない</li>
     <li><b>ジョーカーは${jk}枚</b>${jk === 0 ? '(なし)' : ''}:ホストが待合室で 0〜2枚 から選べる</li>
     <li><b>数字縛りは${nl ? 'あり' : 'なし'}</b>:ホストが待合室で選べる</li>
@@ -64,7 +64,7 @@ export function rulesHtml(cfg = { jokers: 2, numberLock: true }) {
     ${tile('J', '11バック', '<b>場が流れるまで強さが逆転</b>', ['×階段の中のJ', '革命中なら元の強さに'], 'purple')}
     ${tile('Q', '12ボンバー', 'Qの枚数分、<b>数字(かジョーカー)を指定</b>。全員の手札からその数字が消える', ['階段の中でも', '自分の手札も消える'], 'orange')}
     ${tile('♠3', 'スペ3返し', '単体のジョーカーに<b>♠3を1枚出すと勝てる</b>。その後は場が流れる', ['縛り中でも可'], 'gold')}
-    ${tile('革', '革命', '<b>強さが逆転</b>。場が流れても続く', ['同じ数字4枚', '同じマーク4枚以上の階段'], 'red')}
+    ${tile('革', '革命', '<b>強さが逆転</b>。場が流れても続く', ['同じ数字4枚', '4枚以上の階段'], 'red')}
   </div>
   <p class="note">7渡し・10捨てで手札が0枚になったら、その時点で上がりです。</p>
 </section>
@@ -108,8 +108,8 @@ export function rulesHtml(cfg = { jokers: 2, numberLock: true }) {
   <div class="rule-card">
     <h4>起きる手</h4>
     <div class="ex-row"><div class="ex-cards">${cs('S9', 'H9', 'D9', 'C9')}</div><div class="ex-note">${OK}<span>同じ数字4枚(ジョーカー入りもOK)</span></div></div>
-    <div class="ex-row"><div class="ex-cards">${cs('S5', 'S6', 'S7', 'S8')}</div><div class="ex-note">${OK}<span>同じマークの4枚以上の階段</span></div></div>
-    <div class="ex-row"><div class="ex-cards">${cs('S5', 'H6', 'S7', 'S8')}</div><div class="ex-note">${NG}<span>マークが混ざった階段(出せるが革命は起きない)</span></div></div>
+    <div class="ex-row"><div class="ex-cards">${cs('S5', 'S6', 'S7', 'S8')}</div><div class="ex-note">${OK}<span>4枚以上の階段(階段は同じマークだけなので、4枚以上なら必ず革命)</span></div></div>
+    <div class="ex-row"><div class="ex-cards">${cs('S5', 'S6', 'S7')}</div><div class="ex-note">${NG}<span>3枚の階段では起きない</span></div></div>
   </div>
   <div class="rule-card">
     <h4>革命中は</h4>
@@ -185,7 +185,7 @@ export function rulesHtml(cfg = { jokers: 2, numberLock: true }) {
       <li>52枚+ジョーカー1枚を全員に配り切る(2人のときは各20枚)。手札が先になくなった人から上がり</li>
       <li>強さ:3 &lt; 4 &lt; … &lt; K &lt; A &lt; 2 &lt; ジョーカー</li>
       <li>場と<b>同じ枚数・同じ形</b>で、<b>より強い</b>カードを出すかパス</li>
-      <li>出せる形:1枚、同じ数字2〜4枚、3枚以上の階段(連続した数字)</li>
+      <li>出せる形:1枚、同じ数字2〜4枚、同じマークで連続した数字3枚以上の階段</li>
       <li>階段は一番小さい数字で比べる(5-6-7 の次は 6-7-8 以上)</li>
       <li>残り1人になったらゲーム終了</li>
     </ul>

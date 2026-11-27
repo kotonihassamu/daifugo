@@ -17,20 +17,24 @@ test('単体・ペア・階段の解釈', () => {
   assert.equal(one(['S3', 'H3']).type, 'group');
   assert.equal(one(['S3', 'H3', 'D3', 'C3']).size, 4);
   assert.deepEqual(interpretations(['S3', 'H4']), []);
-  const seq = one(['S5', 'H6', 'D7']);
+  const seq = one(['S5', 'S6', 'S7']);
   assert.equal(seq.type, 'seq');
   assert.equal(seq.low, 5);
+  // 階段は同じマークだけ
+  assert.deepEqual(interpretations(['S5', 'H6', 'D7']), []);
+  assert.deepEqual(interpretations(['S5', 'S6', 'H7', 'S8']), []);
   // K-A-2 は可、A-2-3 は不可
-  assert.equal(one(['SK', 'HA', 'D2']).type, 'seq');
-  assert.deepEqual(interpretations(['SA', 'H2', 'D3']), []);
+  assert.equal(one(['HK', 'HA', 'H2']).type, 'seq');
+  assert.deepEqual(interpretations(['SA', 'S2', 'S3']), []);
   // 5枚のグループは不可
   assert.deepEqual(interpretations(['S3', 'H3', 'D3', 'C3', 'JK1']).filter((x) => x.type === 'group'), []);
 });
 
 test('ジョーカー入りの解釈は複数ありうる', () => {
-  const xs = interpretations(['S5', 'H6', 'JK1']);
+  const xs = interpretations(['S5', 'S6', 'JK1']);
   assert.deepEqual(xs.map((x) => x.low).sort(), [4, 5]);
-  const mid = interpretations(['S9', 'JK1', 'HJ']);
+  assert.deepEqual(interpretations(['S5', 'H6', 'JK1']), []); // マークが違えばジョーカーでも階段にならない
+  const mid = interpretations(['H9', 'JK1', 'HJ']);
   assert.equal(mid.length, 1);
   assert.deepEqual(mid[0].jr, [10]);
   const pair = interpretations(['S9', 'JK1']);
@@ -48,7 +52,7 @@ test('強さと革命・11バック', () => {
   assert.ok(canPlay(one(['JK1']), entry(['H3']), rev));
   // 枚数・形が違うと出せない
   assert.ok(!canPlay(one(['S5', 'H5']), entry(['H4']), fx0));
-  assert.ok(!canPlay(one(['S5', 'H6', 'H7']), entry(['H4', 'S4', 'D4']), fx0));
+  assert.ok(!canPlay(one(['H5', 'H6', 'H7']), entry(['H4', 'S4', 'D4']), fx0));
 });
 
 test('スペ3返し', () => {
@@ -104,15 +108,14 @@ test('効果の検出', () => {
   assert.equal(a.queens, 1);
   const b = effectsOf(one(['SJ', 'HJ']));
   assert.equal(b.jack, true);
-  const c = effectsOf(interpretations(['S9', 'JK1', 'HJ'])[0]);
+  const c = effectsOf(interpretations(['H9', 'JK1', 'HJ'])[0]);
   assert.equal(c.tens, 1); // ジョーカーを10として使う
   const d = effectsOf(one(['S6', 'S7', 'S8']));
   assert.equal(d.eight, true);
   assert.equal(d.sevens, 1);
   assert.equal(effectsOf(one(['JK1'])).eight, false);
   assert.equal(effectsOf(one(['S5', 'H5', 'D5', 'C5'])).revolution, true);
-  // 階段はマークがそろった4枚以上だけ革命
-  assert.equal(effectsOf(one(['S9', 'HT', 'SJ', 'SQ'])).revolution, false);
+  // 階段は4枚以上で革命(3枚では起きない)
   assert.equal(effectsOf(one(['S9', 'ST', 'SJ'])).revolution, false);
   assert.equal(effectsOf(interpretations(['S9', 'JK1', 'SJ', 'SQ'])[0]).revolution, true);
 });
@@ -173,4 +176,15 @@ test('禁止上がりの判定', () => {
   assert.equal(legalPlays(['H2'], null, fx0).any, false);
   assert.equal(legalPlays(['H2', 'S4'], null, fx0).any, true);
   assert.ok(!legalPlays(['S8'], entry(['H4']), fx0).any);
+});
+
+test('出せる手の列挙:階段は同じマークだけ', () => {
+  const hand = ['S5', 'H6', 'S7', 'D8', 'S6'];
+  const lead = legalPlays(hand, entry(['H3', 'H4', 'H5']), fx0);
+  assert.equal(lead.any, true);
+  assert.deepEqual([...lead.cards].sort(), ['S5', 'S6', 'S7']);
+  assert.equal(legalPlays(['S5', 'H6', 'D7'], entry(['H3', 'H4', 'H5']), fx0).any, false);
+  // ジョーカーで同じマークの穴を埋める
+  const jk = legalPlays(['C9', 'CJ', 'JK1', 'D3'], entry(['H3', 'H4', 'H5']), fx0);
+  assert.ok(jk.cards.has('C9') && jk.cards.has('CJ') && jk.cards.has('JK1'));
 });
