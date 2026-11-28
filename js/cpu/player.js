@@ -15,6 +15,9 @@ export function describeAction(action) {
   return action.type;
 }
 
+// 最初の1手までの待ち時間(ミリ秒)
+const OPENING_DELAY = 4500;
+
 export class CpuPlayer {
   // decideAsync(game, uid, hand, opts) → Promise<action>(Worker で先読みするときなど)
   constructor(name, ctrl, { decideAsync, level = 'search', thinkMs = 1200, minDelay = 1500, log = () => {} } = {}) {
@@ -80,7 +83,9 @@ export class CpuPlayer {
     }
     if (!action) action = d.kind === 'turn' ? heuristicTurn(g, ctrl.uid, hand) : heuristicChoice(g, ctrl.uid, hand, d);
     const took = Date.now() - t0;
-    await sleep(Math.max(0, this.minDelay - took) + Math.random() * 600);
+    // ゲームの最初の1手は、配る演出と「スタート」の表示を見終わるまで待つ
+    const opening = d.kind === 'turn' && !g.field?.length && !(g.seen || []).length;
+    await sleep(Math.max(0, (opening ? OPENING_DELAY : this.minDelay) - took) + Math.random() * 600);
     try {
       if (this.stopped || ctrl.game?.seq !== seq) return; // 考えている間に状態が変わった → やり直し
       const done = await this.perform(action, d, g, hand);

@@ -68,7 +68,37 @@ export class RoomController extends EventTarget {
     await this.b.update({ [`rooms/${this.roomId}/rules`]: { version: 1, ...(this.room?.rules || {}), [key]: value }, ...this.touch() });
   }
 
-  async createRoom(name) {
+  // ---------- 部屋の作り直し(引き継ぎ) ----------
+  // 作るときに「前の部屋の続き」を選んだ部屋だけ、最初のゲームが終わるまで席順・称号・最初の親・ポイントを入力できる
+  get carryEditable() {
+    const g = this.game;
+    // 1ゲーム目が結果まで終わったら(2ゲーム目以降も)入力できない。中止した1ゲーム目はやり直しできる
+    return !!this.room?.rules?.carryover && !g?.result && (g?.gameNo || 0) <= 1;
+  }
+  get carry() {
+    if (!this.carryEditable) return null;
+    const c = this.room?.rules?.carry || {};
+    return { order: Array.isArray(c.order) ? c.order : Object.values(c.order || {}), titles: c.titles || {}, first: c.first || null };
+  }
+
+  // 引き継ぎの保存(ホスト)。points: { uid: 点数 }
+  async setCarry({ order, titles, first, points }) {
+    if (!this.isHost) throw new Error('ホストだけが変更できます');
+    if (!this.carryEditable) throw new Error('最初のゲームが始まったので変更できません');
+    const rid = this.roomId;
+    const paths = {
+      [`rooms/${rid}/rules`]: { version: 1, ...(this.room?.rules || {}), carry: { order, titles, first: first || null } },
+      ...this.touch(),
+    };
+    for (const [u, pt] of Object.entries(points || {})) {
+      if (!this.room?.players?.[u]) continue;
+      paths[`rooms/${rid}/players/${u}/points`] = Math.round(Number(pt) || 0);
+      paths[`rooms/${rid}/players/${u}/title`] = titles[u] || null;
+    }
+    await this.b.update(paths);
+  }
+
+  async createRoom(name, { carryover = false } = {}) {
     const roomId = this.b.newKey();
     let code = null;
     for (let i = 0; i < 30 && !code; i++) {
@@ -79,7 +109,7 @@ export class RoomController extends EventTarget {
     const t = this.b.serverTime();
     await this.b.update({
       [`rooms/${roomId}/meta`]: { code, hostUid: this.uid, createdAt: t, updatedAt: t },
-      [`rooms/${roomId}/rules`]: { version: 1 },
+      [`rooms/${roomId}/rules`]: carryover ? { version: 1, carryover: true } : { version: 1 },
       [`rooms/${roomId}/players/${this.uid}`]: { name, joinedAt: t, online: true, points: 0 },
       [`roomIndex/${roomId}`]: { updatedAt: t, code },
     });
@@ -213,7 +243,14 @@ export class RoomController extends EventTarget {
   // ---------- ゲーム開始(ホスト) ----------
   // 次のゲームに座る人:部屋にいて接続中の人は全員(「観戦にする」を押した人を除く。ホストは常に参加)。参加順に最大8人
   seatedForNextGame() {
-    return this.players.filter((p) => p.online !== false && (!p.watch || p.uid === this.hostUid)).slice(0, MAX_PLAYERS);
+    let list = this.players.filter((p) => p.online !== false && (!p.watch || p.uid === this.hostUid));
+    // 引き継ぎで席順が決めてあればその順(決めていない人は後ろに参加順で)
+    const order = this.carry?.order;
+    if (order?.length) {
+      const idx = (u) => (order.includes(u) ? order.indexOf(u) : order.length);
+      list = list.map((p, i) => ({ p, i })).sort((a, b) => idx(a.p.uid) - idx(b.p.uid) || a.i - b.i).map((x) => x.p);
+    }
+    return list.slice(0, MAX_PLAYERS);
   }
 
   isReady(uid = this.uid) {
@@ -245,10 +282,15 @@ export class RoomController extends EventTarget {
     const prev = this.game;
     // 交換・先手・都落ちは直前のゲームの称号だけで決める(途中で抜けた人の古い称号は使わない)
     const prevTitles = {};
-    const last = prev?.result?.titles || {};
+    // 部屋の作り直しで入力した称号・最初の親は、最初のゲームだけ使う
+    const carry = this.carry;
+    const last = carry ? carry.titles : prev?.result?.titles || {};
     for (const p of seated) if (last[p.uid]) prevTitles[p.uid] = last[p.uid];
-    const gameNo = (prev?.gameNo || 0) + 1;
-    const { game, hands, inbox } = dealGame({ order, gameNo, prevTitles, seq: prev?.seq || 0, actor: this.uid, jokers: this.settings.jokers, numberLock: this.settings.numberLock });
+    const gameNo = carry ? 1 : (prev?.gameNo || 0) + 1;
+    const { game, hands, inbox } = dealGame({
+      order, gameNo, prevTitles, seq: prev?.seq || 0, actor: this.uid, jokers: this.settings.jokers, numberLock: this.settings.numberLock,
+      carried: !!carry && Object.keys(prevTitles).length > 0, firstUid: carry?.first || null,
+    });
     const rid = this.roomId;
     // BGM をどの端末でもだいたい同じ位置で流すため、開始時刻(サーバー時刻)を入れておく
     const paths = { [`rooms/${rid}/game`]: { ...serializeGame(game), startedAt: this.b.serverTime() }, ...this.touch() };

@@ -193,9 +193,10 @@ function showTop() {
       </div>
       ${demoNote()}
     </div>`;
-  app.querySelector('[data-act=create]').onclick = () => askName('部屋を作る', async (name) => {
-    await ctrl.createRoom(name);
-  });
+  app.querySelector('[data-act=create]').onclick = () => askName('部屋を作る', async (name, form) => {
+    await ctrl.createRoom(name, { carryover: !!form.carryover?.checked });
+  }, `<label class="check-row"><input type="checkbox" name="carryover">
+      <span><b>前の部屋の続きから始める</b><br><small class="muted">部屋を作り直すとき用。待合室で席順・称号・最初の親・ポイントを入力できます。ふつうは全員平民・0ptから</small></span></label>`);
   app.querySelector('[data-act=code]').onclick = () => askCode();
 }
 
@@ -208,10 +209,10 @@ function nameField() {
   return `<label class="field-label">名前(8文字まで)<input class="input" name="name" maxlength="8" autocomplete="nickname" value="${esc(savedName())}" required></label>`;
 }
 
-function askName(title, onOk) {
+function askName(title, onOk, extraHtml = '') {
   const body = document.createElement('form');
   body.className = 'form';
-  body.innerHTML = `<h2>${esc(title)}</h2>${nameField()}<button class="btn primary wide" type="submit">OK</button>`;
+  body.innerHTML = `<h2>${esc(title)}</h2>${nameField()}${extraHtml}<button class="btn primary wide" type="submit">OK</button>`;
   body.onsubmit = async (e) => {
     e.preventDefault();
     const name = body.name.value.trim().slice(0, 8);
@@ -220,7 +221,7 @@ function askName(title, onOk) {
     const b = body.querySelector('button[type=submit]');
     b.disabled = true;
     try {
-      await onOk(name);
+      await onOk(name, body);
       closeModal(true);
     } catch (err) {
       toast(err.message || String(err));
@@ -333,6 +334,7 @@ function renderLobby() {
       </ol>
       <p class="muted small">部屋にいる人は全員参加します(参加順=席順・最大8人)。見るだけの人は「観戦にする」を押してください。切断中の人は入りません。</p>
     </section>
+    ${carryPanel(seated)}
     <section class="panel settings-panel">
       <h2>ルール設定 <span class="muted">${ctrl.isHost ? 'ホストが変更できます・次のゲームから' : 'ホストが決めます'}</span></h2>
       <div class="setting-row">
@@ -386,6 +388,7 @@ function renderLobby() {
       }
       if (act === 'jokers') await ctrl.setRule('jokers', Number(btn.dataset.n));
       if (act === 'numberLock') await ctrl.setRule('numberLock', btn.dataset.v === 'true');
+      if (act === 'carry') openCarryEditor();
       if (act === 'pref') {
         settings[btn.dataset.k] = btn.dataset.v === 'true';
         saveSettings();
@@ -430,6 +433,89 @@ async function share() {
   } catch {
     openModal(`<h2>招待URL</h2><input class="input" readonly value="${esc(url)}" onclick="this.select()">`);
   }
+}
+
+// ---------- 部屋の作り直し(引き継ぎ) ----------
+function carryPanel(seated) {
+  const c = ctrl.carry;
+  if (!c) return '';
+  const set = Object.keys(c.titles).length > 0 || c.order.length > 0 || c.first;
+  const rows = seated
+    .map((p, i) => {
+      const t = c.titles[p.uid];
+      return `<li><span class="seat-no">${i + 1}</span><span class="pname">${esc(p.name)}</span>
+        ${t ? `<span class="tag t-${t}">${TITLES[t]}</span>` : '<span class="tag">平民</span>'}
+        ${c.first === p.uid ? '<span class="tag ok">最初の親</span>' : ''}
+        <span class="pts">${(p.points || 0) > 0 ? '+' : ''}${p.points || 0}pt</span></li>`;
+    })
+    .join('');
+  return `<section class="panel carry-panel">
+    <h2>前の部屋からの引き継ぎ <span class="muted">最初のゲームだけ</span></h2>
+    <ol class="carry-list">${rows}</ol>
+    <p class="muted small">${set ? 'この席順・称号で始めます。称号があればカード交換・都落ちもあります。' : 'まだ入力されていません(このままなら全員平民・0pt、席順は参加順)。'}${c.first ? '' : ' 最初の親は大貧民、いなければダイヤの3を持つ人です。'}</p>
+    ${ctrl.isHost ? '<button class="btn wide" data-act="carry">席順・称号・ポイントを入力する</button>' : '<p class="muted small">ホストが入力します。</p>'}
+  </section>`;
+}
+
+function openCarryEditor() {
+  const c = ctrl.carry;
+  if (!c) return;
+  let list = ctrl.seatedForNextGame().map((p) => ({ uid: p.uid, name: p.name, title: c.titles[p.uid] || 'heimin', points: p.points || 0 }));
+  let first = c.first || '';
+  const body = document.createElement('div');
+  const titleOpts = (sel) => Object.entries(TITLES).map(([k, v]) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${v}</option>`).join('');
+  const draw = () => {
+    body.innerHTML = `<h2>前の部屋からの引き継ぎ</h2>
+      <p class="muted small">上から席順(時計回り)です。▲▼で並べ替えます。参加している人だけが出ます。</p>
+      <ol class="carry-edit">${list
+        .map((p, i) => `<li data-i="${i}">
+          <span class="move"><button class="btn small ghost" data-mv="-1" ${i === 0 ? 'disabled' : ''} aria-label="上へ">▲</button><button class="btn small ghost" data-mv="1" ${i === list.length - 1 ? 'disabled' : ''} aria-label="下へ">▼</button></span>
+          <div class="ce-main"><span class="pname">${i + 1}. ${esc(p.name)}</span>
+            <div class="ce-fields"><select class="input" data-f="title" aria-label="${esc(p.name)}の称号">${titleOpts(p.title)}</select>
+            <label class="pt-in"><input class="input" data-f="points" type="number" inputmode="numeric" step="1" value="${p.points}" aria-label="${esc(p.name)}のポイント">pt</label></div></div>
+        </li>`)
+        .join('')}</ol>
+      <label class="field-label">最初の親
+        <select class="input" name="first"><option value="">自動(大貧民。いなければダイヤの3を持つ人)</option>${list.map((p) => `<option value="${esc(p.uid)}" ${first === p.uid ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></label>
+      <button class="btn primary wide" data-act="save">保存する</button>`;
+  };
+  draw();
+  body.addEventListener('change', (e) => {
+    const li = e.target.closest('li[data-i]');
+    if (li) {
+      const p = list[Number(li.dataset.i)];
+      if (e.target.dataset.f === 'title') p.title = e.target.value;
+      if (e.target.dataset.f === 'points') p.points = Math.round(Number(e.target.value) || 0);
+    }
+    if (e.target.name === 'first') first = e.target.value;
+  });
+  body.addEventListener('click', async (e) => {
+    const mv = e.target.closest('[data-mv]');
+    if (mv) {
+      const i = Number(mv.closest('li').dataset.i), j = i + Number(mv.dataset.mv);
+      [list[i], list[j]] = [list[j], list[i]];
+      draw();
+      return;
+    }
+    if (!e.target.closest('[data-act=save]')) return;
+    // 大富豪・富豪・貧民・大貧民は1人ずつまで
+    for (const t of ['daifugo', 'fugo', 'hinmin', 'daihinmin']) {
+      if (list.filter((p) => p.title === t).length > 1) return toast(`${TITLES[t]}は1人だけにしてください`);
+    }
+    const titles = {}, points = {};
+    for (const p of list) {
+      if (p.title !== 'heimin') titles[p.uid] = p.title;
+      points[p.uid] = p.points;
+    }
+    try {
+      await ctrl.setCarry({ order: list.map((p) => p.uid), titles, first: first || null, points });
+      closeModal();
+      toast('保存しました');
+    } catch (err) {
+      toast(err.message || String(err));
+    }
+  });
+  openModal(body);
 }
 
 // ---------- ゲーム ----------

@@ -504,3 +504,21 @@ body.revolution .table.revolution .felt { background: radial-gradient(90% 70% at
   .bomb-memo small { font-size: 12px; }
   .flow-reason { font-size: 17px; }
 }
+
+/* 部屋の作り直し(引き継ぎ) */
+.check-row { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 14px; font-size: 14px; line-height: 1.45; }
+.check-row input { width: 20px; height: 20px; margin-top: 2px; flex: none; }
+.carry-list { list-style: none; margin: 0 0 8px; padding: 0; display: grid; gap: 6px; }
+.carry-list li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.carry-list .seat-no { width: 22px; height: 22px; border-radius: 50%; background: #e9e4d6; color: #333; display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: none; }
+.carry-list .pts { margin-left: auto; font-variant-numeric: tabular-nums; }
+.carry-edit { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.carry-edit li { display: flex; gap: 10px; align-items: center; padding: 8px; border: 1px solid #ddd5c2; border-radius: 10px; }
+.carry-edit .move { display: grid; gap: 4px; flex: none; }
+.carry-edit .move .btn { min-width: 40px; padding: 4px 8px; }
+.carry-edit .ce-main { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.carry-edit .pname { font-weight: 700; }
+.carry-edit .ce-fields { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.carry-edit .ce-fields select { width: auto; flex: 1; min-width: 6.5em; }
+.carry-edit .pt-in { display: flex; align-items: center; gap: 4px; }
+.carry-edit .pt-in input { width: 5.5em; text-align: right; }
