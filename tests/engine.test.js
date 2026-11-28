@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyAction, dealGame, normalizeGame, serializeGame, activePlayers, RuleError } from '../js/engine.js';
+import { applyAction, dealGame, normalizeGame, serializeGame, activePlayers, RuleError, exchangeChoice } from '../js/engine.js';
 import { legalPlays, interpretations, canPlay, forbiddenFinish } from '../js/rules.js';
 import { makeDeck } from '../js/cards.js';
 
@@ -329,17 +329,46 @@ test('配札の枚数とダイヤの3', () => {
   }
 });
 
+test('カード交換で渡すカード:強い数字から。境目の数字はマークを選べる', () => {
+  // 2が2枚、1枚渡す → どちらの2か選ぶ
+  assert.deepEqual(exchangeChoice(['S2', 'H2', 'SA', 'D3'], 1), { forced: [], options: ['S2', 'H2'], pick: 1 });
+  // ジョーカーとAが2枚、2枚渡す → ジョーカーは必ず、Aはどちらか
+  assert.deepEqual(exchangeChoice(['JK1', 'SA', 'HA', 'D3'], 2), { forced: ['JK1'], options: ['SA', 'HA'], pick: 1 });
+  // 選ぶ余地がなければ全部 forced
+  assert.deepEqual(exchangeChoice(['S2', 'HA', 'D3'], 2), { forced: ['S2', 'HA'], options: [], pick: 0 });
+  assert.deepEqual(exchangeChoice(['S2', 'H2', 'D3'], 2), { forced: ['S2', 'H2'], options: [], pick: 0 });
+  // ジョーカー2枚から1枚(どちらでもよい)
+  assert.equal(exchangeChoice(['JK1', 'JK2', 'S3'], 1).pick, 1);
+  // ルール外のカードは渡せない
+  const g = normalizeGame({
+    seq: 1, status: 'exchange', gameNo: 2, order: ['a', 'b'], first: 'b', turn: null, handCount: { a: 3, b: 4 }, effects: {},
+    exchange: { b: { give: true, to: 'a', count: 1, forced: [], options: ['S2', 'H2'], pick: 1, done: false }, a: { to: 'b', count: 1, done: false, waitGive: true } },
+  });
+  assert.throws(() => applyAction(g, 'b', { type: 'exchangeGive', cards: ['SA'] }, ['S2', 'H2', 'SA', 'D3']), /強いカード/);
+  const out = applyAction(g, 'b', { type: 'exchangeGive', cards: ['H2'] }, ['S2', 'H2', 'SA', 'D3']);
+  assert.deepEqual(out.hand, ['S2', 'SA', 'D3']);
+  assert.equal(out.game.exchange.a.waitGive, false);
+  assert.deepEqual(out.inbox.find((x) => x.to === 'a').item.cards, ['H2']);
+});
+
 test('2ゲーム目:大貧民から、カード交換', () => {
   const order = ['a', 'b', 'c', 'd'];
   const prevTitles = { a: 'daifugo', b: 'fugo', c: 'hinmin', d: 'daihinmin' };
   const { game, hands, inbox } = dealGame({ order, gameNo: 2, prevTitles });
   assert.equal(game.status, 'exchange');
   assert.equal(game.first, 'd');
-  assert.equal(inbox.a[0].cards.length, 2);
-  assert.equal(inbox.b[0].cards.length, 1);
   const s = { game: normalizeGame(game), hands: structuredClone(hands), events: [] };
-  for (const it of inbox.a) if (it.kind === 'cards') s.hands.a.push(...it.cards);
-  for (const it of inbox.b) if (it.kind === 'cards') s.hands.b.push(...it.cards);
+  for (const u of ['a', 'b']) for (const it of inbox[u] || []) if (it.kind === 'cards') s.hands[u].push(...it.cards);
+  // マークを選べるときは、貧しい側が先に渡す
+  for (const [poor, rich, k] of [['d', 'a', 2], ['c', 'b', 1]]) {
+    const it = s.game.exchange[poor];
+    if (it?.give) {
+      assert.equal(s.game.exchange[rich].waitGive, true);
+      assert.throws(() => applyAction(s.game, rich, { type: 'exchangeReturn', cards: s.hands[rich].slice(0, k) }, s.hands[rich]), /選んでいます/);
+      act(s, poor, { type: 'exchangeGive', cards: [...it.forced, ...it.options.slice(0, it.pick)] });
+    }
+    assert.equal(s.hands[rich].length, s.game.handCount[rich]);
+  }
   assert.equal(s.game.handCount.a, s.hands.a.length);
   act(s, 'a', { type: 'exchangeReturn', cards: s.hands.a.slice(0, 2) });
   assert.equal(s.game.status, 'exchange');
@@ -367,8 +396,10 @@ function randomGame(n, seed, gameNo = 1, prevTitles = {}, jokers = 2) {
     const g = s.game;
     for (const u of order) assert.equal(g.handCount[u], s.hands[u].length, `count ${u}`);
     if (g.status === 'exchange') {
-      const [u, it] = Object.entries(g.exchange).find(([, x]) => !x.done);
-      act(s, u, { type: 'exchangeReturn', cards: s.hands[u].slice(0, it.count) });
+      // 渡す側(マークを選ぶ)が先、返す側はそのあと
+      const [u, it] = Object.entries(g.exchange).find(([, x]) => !x.done && !x.waitGive);
+      if (it.give) act(s, u, { type: 'exchangeGive', cards: [...it.forced, ...pick([it.options, [...it.options].reverse()]).slice(0, it.pick)] });
+      else act(s, u, { type: 'exchangeReturn', cards: s.hands[u].slice(0, it.count) });
       continue;
     }
     if (g.bombApply) {
@@ -433,7 +464,8 @@ test('部屋の作り直し:1ゲーム目から称号を引き継いで交換・
   assert.equal(game.status, 'exchange');
   assert.equal(game.first, 'd');
   assert.equal(game.prevDaifugo, 'a');
-  assert.equal(inbox.a[0].cards.length, 2);
+  // 大貧民 d → 大富豪 a に2枚(マークを選べるときは d が選ぶまで待つ)
+  assert.ok(game.exchange.d?.give ? game.exchange.d.count === 2 : inbox.a[0].cards.length === 2);
   // 最初の親を指定
   assert.equal(dealGame({ order, gameNo: 1, prevTitles, carried: true, firstUid: 'b' }).game.first, 'b');
   assert.equal(dealGame({ order, gameNo: 1, firstUid: 'c' }).game.first, 'c');

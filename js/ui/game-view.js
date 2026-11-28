@@ -1,5 +1,5 @@
 // ゲーム画面:テーブル配置・場・手札・操作ボタン・演出
-import { sortCards, cardLabel, rankLabel } from '../cards.js';
+import { sortCards, cardLabel, rankLabel, parseCard } from '../cards.js';
 import { interpretations, canPlay, legalPlays, direction, describeCombo, suitLockText, numberLockText, forbiddenFinish, isAllJoker } from '../rules.js';
 import { canPassNow, TITLES, fieldTop } from '../engine.js';
 import { cardSvg } from './card-svg.js';
@@ -158,7 +158,7 @@ export class GameView {
 
   isMyTurn(g) {
     const me = this.me;
-    return !!g && ((g.status === 'playing' && g.turn === me && !g.pending && !g.bombApply) || g.pending?.uid === me || (g.status === 'exchange' && !!g.exchange?.[me] && !g.exchange[me].done));
+    return !!g && ((g.status === 'playing' && g.turn === me && !g.pending && !g.bombApply) || g.pending?.uid === me || (g.status === 'exchange' && !!g.exchange?.[me] && !g.exchange[me].done && !g.exchange[me].waitGive));
   }
 
   notifyTurn() {
@@ -378,9 +378,10 @@ export class GameView {
     let text = '';
     const btns = [];
     if (g.status === 'exchange') {
-      const waiting = Object.entries(g.exchange || {}).filter(([, x]) => !x.done).map(([u]) => u);
-      text = `カード交換中… ${waiting.map((u) => esc(this.name(u))).join('、')}さんが返すカードを選んでいます`;
-      if (host && waiting.some(off)) btns.push(['skipExchange', '交換をスキップ']);
+      const waiting = Object.entries(g.exchange || {}).filter(([, x]) => !x.done && !x.waitGive);
+      const who = (give) => waiting.filter(([, x]) => !!x.give === give).map(([u]) => esc(this.name(u))).join('、');
+      text = 'カード交換中… ' + [who(true) && `${who(true)}さんが渡すカード`, who(false) && `${who(false)}さんが返すカード`].filter(Boolean).join('、') + 'を選んでいます';
+      if (host && waiting.some(([u]) => off(u))) btns.push(['skipExchange', '交換をスキップ']);
     } else if (g.status === 'result') {
       text = 'ゲーム終了 — まもなく待合室へ';
     } else if (g.bombApply) {
@@ -422,7 +423,15 @@ export class GameView {
     let html = '';
     if (g.status === 'exchange') {
       const item = g.exchange?.[this.me];
-      if (item && !item.done) {
+      if (item && !item.done && item.give) {
+        const opts = item.options || [], forced = item.forced || [];
+        const rank = opts[0] ? (opts[0].startsWith('JK') ? 'ジョーカー' : rankLabel(parseCard(opts[0]).rank)) : '';
+        html = `<b>カード交換</b>:${esc(this.name(item.to))}さんに強いカードを<b>${item.count}枚</b>渡します。` +
+          (forced.length ? `${forced.map(cardLabel).join('・')} は必ず渡します。` : '') +
+          `${rank}のうち、渡すカードを<b>${item.pick}枚</b>選んでください(光っているカード)`;
+      } else if (item && !item.done && item.waitGive) {
+        html = `<b>カード交換</b>:${esc(this.name(item.to))}さんが渡すカードを選んでいます`;
+      } else if (item && !item.done) {
         const got = [...this.ctrl.received];
         html = `<b>カード交換</b>:${esc(this.name(item.to))}さんから ${got.map(cardLabel).join('・') || `${item.count}枚`} を受け取りました。返すカードを<b>${item.count}枚</b>選んでください`;
       }
@@ -512,7 +521,9 @@ export class GameView {
     const half = Math.max(1, (n - 1) / 2);
     const g = this.displayGame || this.ctrl.game;
     let hint = null;
-    if (this.settings.hint && g && g.status === 'playing' && g.turn === this.me && !g.pending && !g.bombApply) {
+    const em = g?.status === 'exchange' ? this.mode(g) : null;
+    if (em?.kind === 'exchangeGive') hint = new Set(em.options); // 渡せる候補を光らせる
+    else if (this.settings.hint && g && g.status === 'playing' && g.turn === this.me && !g.pending && !g.bombApply) {
       hint = legalPlays(this.ctrl.hand, fieldTop(g), g.effects).cards;
     }
     const ch = (cw * 88) / 63;
@@ -578,8 +589,9 @@ export class GameView {
     const me = this.me;
     if (g.status === 'exchange') {
       const item = g.exchange?.[me];
-      if (item && !item.done) return { kind: 'exchange', count: item.count };
-      return { kind: 'none' };
+      if (!item || item.done || item.waitGive) return { kind: 'none' };
+      if (item.give) return { kind: 'exchangeGive', count: item.pick, forced: [...(item.forced || [])], options: [...(item.options || [])] };
+      return { kind: 'exchange', count: item.count };
     }
     if (g.status !== 'playing') return { kind: 'none' };
     if (g.pending?.uid === me && (g.pending.type === 'seven' || g.pending.type === 'ten')) return { kind: g.pending.type, count: g.pending.count };
@@ -614,9 +626,10 @@ export class GameView {
       pass.textContent = cp.lead ? 'パス(出せる手なし)' : 'パス';
       pass.disabled = !synced || !cp.ok;
       pass.title = cp.reason || '';
-    } else if (m.kind === 'seven' || m.kind === 'ten' || m.kind === 'exchange') {
-      play.textContent = { seven: '渡す', ten: '捨てる', exchange: '返す' }[m.kind] + ` (${this.sel.size}/${m.count})`;
-      play.disabled = !synced || this.sel.size !== m.count;
+    } else if (m.kind === 'seven' || m.kind === 'ten' || m.kind === 'exchange' || m.kind === 'exchangeGive') {
+      play.textContent = { seven: '渡す', ten: '捨てる', exchange: '返す', exchangeGive: '渡す' }[m.kind] + ` (${this.sel.size}/${m.count})`;
+      const okSel = m.kind !== 'exchangeGive' || [...this.sel].every((c) => m.options.includes(c));
+      play.disabled = !synced || this.sel.size !== m.count || !okSel;
       pass.style.visibility = 'hidden';
     } else {
       play.textContent = '出す';
@@ -635,7 +648,7 @@ export class GameView {
     if (m.kind === 'turn') {
       main = 'あなたの番です';
       if (this.forbidReason && this.sel.size) sub = `最後の1手に${this.forbidReason}は使えません(禁止上がり)`;
-    } else if (m.kind === 'seven' || m.kind === 'ten' || m.kind === 'exchange') {
+    } else if (m.kind === 'seven' || m.kind === 'ten' || m.kind === 'exchange' || m.kind === 'exchangeGive') {
       main = 'あなたが選ぶ番です';
     } else if (g?.pending?.uid === this.me && g.pending.type === 'bomb') {
       main = 'あなたが数字を選ぶ番です';
@@ -690,6 +703,12 @@ export class GameView {
           this.captureRects(cards);
           this.sel.clear();
           if (!(await run({ type: 'play', cards, interp }))) this.myPlayRects = null;
+        } else if (m.kind === 'exchangeGive') {
+          if (!cards.every((c) => m.options.includes(c))) return toast('光っているカードから選んでください');
+          const give = [...m.forced, ...cards];
+          const to = g.exchange?.[this.me]?.to;
+          this.sel.clear();
+          if (await run({ type: 'exchangeGive', cards: give })) toast(`${this.name(to)}さんに ${give.map(cardLabel).join('・')} を渡しました`, 5000);
         } else if (m.kind === 'seven' || m.kind === 'ten' || m.kind === 'exchange') {
           this.captureRects(cards);
           this.sel.clear();
