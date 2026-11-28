@@ -132,6 +132,7 @@ function wire() {
     keepAwake();
   });
   ctrl.addEventListener('hand', () => view?.onHand());
+  ctrl.addEventListener('peek', () => view?.renderHand());
   ctrl.addEventListener('received', (e) => {
     const { cards } = e.detail;
     const g = ctrl.game;

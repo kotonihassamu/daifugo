@@ -44,6 +44,11 @@ export function normalizeGame(raw) {
   g.seen = toArray(g.seen);
   // この場で12ボンバーに指定された数字(場が流れるまで画面の端にメモとして出す)
   g.bombNotes = toArray(g.bombNotes).map((n) => ({ by: n.by, ranks: toArray(n.ranks) }));
+  // 手札を見てよい人の判定用(セキュリティルールが読む):seats=このゲームの席、out=上がった・都落ちした人
+  g.seats = g.seats || Object.fromEntries(g.order.map((u) => [u, true]));
+  g.out = { ...(g.out || {}) };
+  for (const u of toArray(g.finished)) g.out[u] = true;
+  if (g.ochi) g.out[g.ochi] = true;
   g.rules = { jokers: DEFAULT_JOKERS, numberLock: true, ...(g.rules || {}) };
   g.lastBy = g.lastBy || null;
   g.turn = g.turn || null;
@@ -129,10 +134,12 @@ function flow(g, leader, reason) {
 function finish(g, u) {
   if (g.finished.includes(u) || g.ochi === u) return;
   g.finished.push(u);
+  (g.out ||= {})[u] = true;
   g.events.push({ t: 'finish', uid: u, place: g.finished.length });
   // 都落ち:大富豪が1位を逃したら即大貧民で抜ける
   if (g.finished.length === 1 && g.prevDaifugo && g.prevDaifugo !== u && isActive(g, g.prevDaifugo)) {
     g.ochi = g.prevDaifugo;
+    g.out[g.ochi] = true;
     g.events.push({ t: 'ochi', uid: g.ochi });
     if (g.bombApply) delete g.bombApply.waiting[g.ochi];
   }
@@ -312,7 +319,7 @@ export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = 
     pending: null, bombApply: null, resolve: null, finished: [], ochi: null,
     prevTitles: { ...prevTitles }, prevDaifugo, exchange: hasExchange ? exchange : null,
     events: [{ t: 'deal' }, ...(hasExchange ? [] : [{ t: 'start', uid: first }])], result: null,
-    leadPasses: 0, seen: [], bombNotes: [], rules: { jokers: Math.max(0, Math.min(2, jokers)), numberLock: numberLock !== false },
+    leadPasses: 0, seen: [], bombNotes: [], seats: Object.fromEntries(order.map((u) => [u, true])), out: {}, rules: { jokers: Math.max(0, Math.min(2, jokers)), numberLock: numberLock !== false },
   };
   return { game, hands, inbox };
 }

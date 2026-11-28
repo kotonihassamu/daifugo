@@ -440,6 +440,12 @@ export class GameView {
   // 手札:強さ順に扇状に重ねる
   renderHand() {
     const g = this.displayGame || this.ctrl.game;
+    // 観戦中・上がったあとは、自分の手札の代わりにまだ遊んでいる人の手札を見せる
+    if (this.ctrl.canPeek) return this.renderPeek(g);
+    if (this.el.hand.classList.contains('peeking')) {
+      this.el.hand.classList.remove('peeking');
+      this.el.hand.innerHTML = '';
+    }
     const hand = this.ctrl.hand;
     const reversed = g ? direction(g.effects) < 0 : false;
     const sorted = sortCards(hand, this.settings.sort, reversed);
@@ -464,7 +470,33 @@ export class GameView {
     this.layoutHand();
   }
 
+  renderPeek(g) {
+    const hand = this.el.hand;
+    if (!g) return;
+    hand.classList.add('peeking');
+    hand.style.height = '';
+    const me = this.me;
+    const reversed = direction(g.effects) < 0;
+    const spectator = !g.order.includes(me);
+    const active = g.order.filter((u) => u !== me && !g.finished.includes(u) && g.ochi !== u);
+    const hands = this.ctrl.peekHands || {};
+    const rows = active
+      .map((u) => {
+        const cards = hands[u];
+        const list = cards ? sortCards(cards, this.settings.sort, reversed) : null;
+        return `<div class="peek-row"><div class="peek-name">${esc(this.name(u))} <span>${g.handCount[u] ?? 0}枚</span></div>
+          <div class="peek-cards">${list ? list.map((c) => `<div class="peek-card">${cardSvg(c)}</div>`).join('') : '<span class="peek-wait">読み込み中…</span>'}</div></div>`;
+      })
+      .join('');
+    const denied = this.ctrl.peekDenied
+      ? '<p class="peek-note">手札を読み込めませんでした。ホストの方は、Firebase のデータベースのルールを最新の database.rules.json に更新してください。</p>'
+      : '';
+    hand.innerHTML = `<div class="peek-title">みんなの手札<small>${spectator ? '観戦中なので見えます' : '上がったので見えます'}</small></div>${denied}${rows}`;
+    this.sortedHand = [];
+  }
+
   layoutHand() {
+    if (this.el.hand.classList.contains('peeking')) return;
     const els = [...this.el.hand.querySelectorAll('.hcard')];
     const n = els.length;
     const W = this.el.hand.clientWidth - 24;
@@ -697,8 +729,9 @@ export class GameView {
       body.addEventListener('click', (e) => {
         const b = e.target.closest('[data-key]');
         if (!b) return;
-        closeModal();
+        // 先に選んだものを返してから閉じる(閉じる処理は「やめる」扱いになるため)
         resolve(b.dataset.key || null);
+        closeModal(true);
       });
       openModal(body, () => resolve(null));
     });
