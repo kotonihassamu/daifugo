@@ -422,3 +422,20 @@ test('Firebaseの往復で状態が壊れない', () => {
   assert.equal(makeDeck(0).length, 52);
   assert.equal(makeDeck(1).length, 53);
 });
+
+test('部屋の作り直し:1ゲーム目から称号を引き継いで交換・都落ちあり、最初の親も指定できる', () => {
+  const order = ['a', 'b', 'c', 'd'];
+  const prevTitles = { a: 'daifugo', b: 'fugo', c: 'hinmin', d: 'daihinmin' };
+  // 引き継ぎなしの1ゲーム目は交換なし
+  assert.equal(dealGame({ order, gameNo: 1, prevTitles }).game.status, 'playing');
+  const { game, inbox } = dealGame({ order, gameNo: 1, prevTitles, carried: true });
+  assert.equal(game.gameNo, 1);
+  assert.equal(game.status, 'exchange');
+  assert.equal(game.first, 'd');
+  assert.equal(game.prevDaifugo, 'a');
+  assert.equal(inbox.a[0].cards.length, 2);
+  // 最初の親を指定
+  assert.equal(dealGame({ order, gameNo: 1, prevTitles, carried: true, firstUid: 'b' }).game.first, 'b');
+  assert.equal(dealGame({ order, gameNo: 1, firstUid: 'c' }).game.first, 'c');
+  assert.equal(dealGame({ order: ['a', 'b'], gameNo: 1, firstUid: 'b' }).game.first, 'b');
+});

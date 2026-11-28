@@ -241,14 +241,18 @@ function startPlay(g) {
 
 // ---------- 配札 ----------
 // order: 席順(時計回り)の uid 配列, prevTitles: { uid: 前ゲームの称号 }
-export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = null, rng = Math.random, jokers = DEFAULT_JOKERS, numberLock = true }) {
+// carried: 部屋の作り直しで称号を引き継いだ最初のゲーム(2ゲーム目以降と同じく交換・都落ちあり)
+// firstUid: 最初の親を指定するとき(指定がなければ大貧民、いなければダイヤの3)
+export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = null, rng = Math.random, jokers = DEFAULT_JOKERS, numberLock = true, carried = false, firstUid = null }) {
   const n = order.length;
   if (n < 2) err('2人以上必要です');
   const deck = shuffle(makeDeck(jokers), rng);
   const total = n === 2 ? 40 : deck.length;
   const titleOf = (t) => order.find((u) => prevTitles[u] === t) || null;
-  const daihinmin = gameNo > 1 ? titleOf('daihinmin') : null;
-  let firstIdx = daihinmin ? order.indexOf(daihinmin) : Math.floor(rng() * n);
+  const cont = gameNo > 1 || carried;
+  const daihinmin = cont ? titleOf('daihinmin') : null;
+  const pickFirst = firstUid && order.includes(firstUid) ? firstUid : null;
+  let firstIdx = pickFirst ? order.indexOf(pickFirst) : daihinmin ? order.indexOf(daihinmin) : Math.floor(rng() * n);
   const base = Math.floor(total / n), extra = total % n;
   const hands = {};
   let p = 0;
@@ -258,7 +262,7 @@ export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = 
     hands[u] = deck.slice(p, p + cnt);
     p += cnt;
   }
-  if (!daihinmin) {
+  if (!daihinmin && !pickFirst) {
     if (n >= 3) {
       // ダイヤの3を最初の人に(配る枚数の偏りを最初の人に合わせるため入れ替える)
       const first = order[firstIdx];
@@ -283,7 +287,7 @@ export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = 
   // カード交換:貧しい側の最強カードを自動で選んで富む側の受け箱へ
   const inbox = {};
   const exchange = {};
-  if (gameNo > 1) {
+  if (cont) {
     const pairs = [];
     const df = titleOf('daifugo'), dh = titleOf('daihinmin');
     if (df && dh) pairs.push([dh, df, 2]);
@@ -300,7 +304,7 @@ export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = 
     }
   }
   const hasExchange = Object.keys(exchange).length > 0;
-  const prevDaifugo = gameNo > 1 ? titleOf('daifugo') : null;
+  const prevDaifugo = cont ? titleOf('daifugo') : null;
   const game = {
     seq: seq + 1, actor, status: hasExchange ? 'exchange' : 'playing', gameNo, order: [...order],
     first, turn: hasExchange ? null : first, field: [], lastBy: null, passed: {}, handCount,
