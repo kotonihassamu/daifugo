@@ -178,6 +178,7 @@ export class RoomController extends EventTarget {
           this.received = new Set();
         }
         this.game = g;
+        this.syncPeek();
         this.emit('room', { prev, game: g });
         this.scheduleTick();
         if (this.isHost) this.checkCpuProxy();
@@ -198,7 +199,50 @@ export class RoomController extends EventTarget {
     );
   }
 
+  // ---------- 観戦・上がったあとに、ほかの人の手札を見る ----------
+  // 見てよいのは、このゲームの席にいない人(観戦)と、上がった・都落ちした人だけ(セキュリティルールでも同じ判定)
+  get canPeek() {
+    const g = this.game;
+    if (!g || (g.status !== 'playing' && g.status !== 'exchange')) return false;
+    return !g.order.includes(this.uid) || g.finished.includes(this.uid) || g.ochi === this.uid;
+  }
+
+  syncPeek() {
+    this.peekSubs ||= new Map();
+    this.peekHands ||= {};
+    const g = this.game;
+    const want = this.canPeek ? g.order.filter((u) => u !== this.uid && !g.finished.includes(u) && g.ochi !== u) : [];
+    let changed = false;
+    for (const [u, off] of this.peekSubs) {
+      if (want.includes(u)) continue;
+      off?.();
+      this.peekSubs.delete(u);
+      delete this.peekHands[u];
+      changed = true;
+    }
+    // 読めなかったとき(ルール未更新など)は少し待ってからやり直す
+    if (this.peekDeniedAt && Date.now() - this.peekDeniedAt < 5000) return changed && this.emit('peek');
+    for (const u of want) {
+      if (this.peekSubs.has(u)) continue;
+      const off = this.b.on(`hands/${this.roomId}/${u}`, (v) => {
+        this.peekHands[u] = toArray(v);
+        this.peekDenied = false;
+        this.emit('peek');
+      }, () => {
+        this.peekSubs.delete(u);
+        this.peekDenied = true;
+        this.peekDeniedAt = Date.now();
+        this.emit('peek');
+      });
+      this.peekSubs.set(u, off);
+    }
+    if (changed) this.emit('peek');
+  }
+
   unsubscribe() {
+    for (const [, off] of this.peekSubs || []) off?.();
+    this.peekSubs = new Map();
+    this.peekHands = {};
     for (const off of this.subs) off?.();
     this.subs = [];
   }

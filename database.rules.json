@@ -33,7 +33,7 @@
       "$roomId": {
         ".write": "auth != null && !newData.exists() && root.child('roomIndex/' + $roomId + '/updatedAt').val() < now - 86400000",
         "$uid": {
-          ".read": "auth != null && auth.uid === $uid",
+          ".read": "auth != null && (auth.uid === $uid || (root.child('rooms/' + $roomId + '/players/' + auth.uid).exists() && (!root.child('rooms/' + $roomId + '/game/seats/' + auth.uid).exists() || root.child('rooms/' + $roomId + '/game/out/' + auth.uid).exists())))",
           ".write": "auth != null && (auth.uid === $uid || root.child('rooms/' + $roomId + '/meta/hostUid').val() === auth.uid)"
         }
       }

@@ -24,8 +24,8 @@ async function client(i) {
 }
 
 const cs = [];
-for (let i = 0; i < 5; i++) cs.push(await client(i));
-const [A, B, C, D, X] = cs;
+for (let i = 0; i < 6; i++) cs.push(await client(i));
+const [A, B, C, D, X, W] = cs;
 const rid = await A.c.createRoom('あ');
 await sleep(300);
 const code = A.c.room.meta.code;
@@ -75,12 +75,31 @@ const notTurn = cs.slice(0, 4).find((p) => p.c.uid !== turnUid && p.c.uid !== A.
   await sleep(300);
 }
 
+// 上がった人は、まだ遊んでいる人の手札を見られる(遊んでいる人どうしは見られない)
+let peekChecked = false;
+async function checkPeek() {
+  const g = A.c.game;
+  if (peekChecked || g.status !== 'playing' || g.finished.length !== 1) return;
+  peekChecked = true;
+  const done = cs.find((p) => p.c.uid === g.finished[0]);
+  const active = cs.slice(0, 4).filter((p) => !g.finished.includes(p.c.uid) && g.ochi !== p.c.uid);
+  await sleep(200);
+  try {
+    const h = await done.b.get(`hands/${rid}/${active[0].c.uid}`);
+    check(Array.isArray(h) || (h && typeof h === 'object'), '上がった人は他人の手札を読める');
+  } catch (e) {
+    check(false, '上がった人は他人の手札を読める -> ' + e.message);
+  }
+  await denied(active[0].b.get(`hands/${rid}/${active[1].c.uid}`), 'まだ遊んでいる人は他人の手札を読めない');
+}
+
 // 自動で最後まで遊ぶ(2ゲーム)
 async function playGame() {
   const players = cs.slice(0, 4);
   const t0 = Date.now();
   while (Date.now() - t0 < 120000) {
     const g = A.c.game;
+    await checkPeek();
     if (g.status === 'result' && players.every((p) => p.c.game.status === 'result')) return g;
     for (const p of players) {
       const c = p.c, gg = c.game, me = c.uid;
@@ -116,6 +135,18 @@ check(A.c.seatedForNextGame().length === 4, '次のゲームもメンバーを�
 await A.c.startGame();
 await sleep(800);
 console.log('game2 status', A.c.game.status, 'first', A.c.game.first);
+// ゲーム中に入ってきた観戦者は、遊んでいる人の手札を読める。部屋にいない人は読めない
+await denied(X.b.get(`hands/${rid}/${B.b.uid}`), '部屋にいない人は手札を読めない');
+await W.c.join(rid, 'み');
+await sleep(400);
+try {
+  const h = await W.b.get(`hands/${rid}/${B.b.uid}`);
+  check(!!h, '観戦者は手札を読める');
+} catch (e) {
+  check(false, '観戦者は手札を読める -> ' + e.message);
+}
+await W.c.leave();
+await sleep(300);
 const r2 = await playGame();
 check(r2.result.ranking.length === 4, 'game2 finished');
 console.log('game2 ochi', r2.ochi, 'events seq', r2.seq);
