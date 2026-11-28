@@ -60,3 +60,19 @@ test('親のときは複数枚の手も候補に入り、禁止上がりの手�
   assert.deepEqual(candidatePlays(g, ['H2']), []); // 最後の1枚が2 → 出せない
   assert.deepEqual(decide(g, 'a', ['H2'], { timeMs: 5 }), { type: 'pass' });
 });
+
+test('12ボンバー:もう残っていない数字(出たジョーカーなど)は選ばない', async () => {
+  const { bombRanks } = await import('../js/cpu/policy.js');
+  const g = { rules: { jokers: 2 }, effects: { revolution: false }, seen: [] };
+  assert.deepEqual(bombRanks(['S3'], 1, g), ['JK']);
+  // ジョーカー2枚とも出ていたら次に強い2
+  assert.deepEqual(bombRanks(['S3'], 1, { ...g, seen: ['JK1', 'JK2'] }), ['2']);
+  // 2も4枚とも出ていたら A
+  assert.deepEqual(bombRanks(['S3'], 2, { ...g, seen: ['JK1', 'JK2', 'S2', 'H2', 'D2', 'C2'] }), ['A', 'K']);
+  // 自分が持っている数字は避ける
+  assert.deepEqual(bombRanks(['JK1', 'S2'], 1, g), ['A']);
+  // ジョーカーなしの部屋
+  assert.deepEqual(bombRanks(['S3'], 1, { ...g, rules: { jokers: 0 } }), ['2']);
+  // 革命中は小さい数字が強い
+  assert.deepEqual(bombRanks(['S9'], 2, { ...g, seen: ['JK1', 'JK2'], effects: { revolution: true } }), ['3', '4']);
+});

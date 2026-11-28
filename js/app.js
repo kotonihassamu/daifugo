@@ -135,7 +135,7 @@ function wire() {
   ctrl.addEventListener('received', (e) => {
     const { cards } = e.detail;
     const g = ctrl.game;
-    if (cards.length && g?.status === 'playing') toast(`${cards.map(cardLabel).join('・')} を受け取りました`);
+    if (cards.length && g?.status === 'playing') toast(`${cards.map(cardLabel).join('・')} を受け取りました`, 5000);
     view?.onHand();
     if (g) view?.render(g);
   });

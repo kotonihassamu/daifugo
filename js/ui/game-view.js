@@ -661,7 +661,14 @@ export class GameView {
         } else if (m.kind === 'seven' || m.kind === 'ten' || m.kind === 'exchange') {
           this.captureRects(cards);
           this.sel.clear();
-          await run({ type: m.kind === 'exchange' ? 'exchangeReturn' : m.kind, cards });
+          const p = g.pending;
+          const ok = await run({ type: m.kind === 'exchange' ? 'exchangeReturn' : m.kind, cards });
+          // 渡したカードを少し長めに表示(受け取った側も5秒出る)
+          if (ok && m.kind === 'seven' && p?.to) toast(`${this.name(p.to)}さんに ${cards.map(cardLabel).join('・')} を渡しました`, 5000);
+          if (ok && m.kind === 'exchange') {
+            const to = g.exchange?.[this.me]?.to;
+            if (to) toast(`${this.name(to)}さんに ${cards.map(cardLabel).join('・')} を返しました`, 5000);
+          }
         }
         this.renderControls(this.ctrl.game);
         return;
