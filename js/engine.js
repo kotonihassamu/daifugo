@@ -246,6 +246,20 @@ function startPlay(g) {
   g.events.push({ t: 'start', uid: g.first });
 }
 
+// カード交換で貧しい側が渡すカード。数字の強い順に k 枚。境目の数字が同じカード(例:2が2枚あって1枚だけ渡す)は、
+// どのマークを渡すか本人が選べる。forced=必ず渡すカード、options=選べる候補、pick=候補から選ぶ枚数
+export function exchangeChoice(hand, k) {
+  const power = (c) => { const p = parseCard(c); return p.joker ? 99 : p.rank; };
+  const sorted = [...hand].sort((a, b) => power(b) - power(a) || strengthKey(b) - strengthKey(a));
+  const top = sorted.slice(0, k);
+  if (top.length < k || !top.length) return { forced: top, options: [], pick: 0 };
+  const edge = power(top[top.length - 1]);
+  const forced = top.filter((c) => power(c) > edge);
+  const options = hand.filter((c) => power(c) === edge);
+  const pick = k - forced.length;
+  return options.length === pick ? { forced: [...forced, ...options], options: [], pick: 0 } : { forced, options, pick };
+}
+
 // ---------- 配札 ----------
 // order: 席順(時計回り)の uid 配列, prevTitles: { uid: 前ゲームの称号 }
 // carried: 部屋の作り直しで称号を引き継いだ最初のゲーム(2ゲーム目以降と同じく交換・都落ちあり)
@@ -291,7 +305,7 @@ export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = 
   const handCount = {};
   for (const u of order) handCount[u] = hands[u].length;
 
-  // カード交換:貧しい側の最強カードを自動で選んで富む側の受け箱へ
+  // カード交換:貧しい側の最強カードを富む側の受け箱へ。同じ強さのカードからマークを選べるときは、本人が選ぶまで待つ
   const inbox = {};
   const exchange = {};
   if (cont) {
@@ -301,7 +315,13 @@ export function dealGame({ order, gameNo = 1, prevTitles = {}, seq = 0, actor = 
     const f = titleOf('fugo'), h = titleOf('hinmin');
     if (f && h) pairs.push([h, f, 1]);
     for (const [poor, rich, k] of pairs) {
-      const give = strongest(hands[poor], k);
+      const ch = exchangeChoice(hands[poor], k);
+      if (ch.pick > 0) {
+        exchange[poor] = { give: true, to: rich, count: k, forced: ch.forced, options: ch.options, pick: ch.pick, done: false };
+        exchange[rich] = { to: poor, count: k, done: false, waitGive: true };
+        continue;
+      }
+      const give = ch.forced;
       hands[poor] = removeCards(hands[poor], give);
       handCount[poor] -= give.length;
       handCount[rich] += give.length;
@@ -504,10 +524,34 @@ export function applyAction(game0, uid, action, hand0, { isHost = false } = {}) 
       completeBomb(g);
       break;
     }
+    case 'exchangeGive': {
+      // 貧しい側:強いカードのうち、どのマークを渡すか選んで渡す
+      if (g.status !== 'exchange') err('カード交換中ではありません');
+      const item = g.exchange?.[uid];
+      if (!item || !item.give || item.done) err('渡すカードはありません');
+      needMine();
+      const forced = toArray(item.forced), options = toArray(item.options);
+      const cards = action.cards || [];
+      const chosen = cards.filter((c) => !forced.includes(c));
+      if (cards.length !== item.count || !forced.every((c) => cards.includes(c)) || chosen.length !== item.pick || !chosen.every((c) => options.includes(c)))
+        err(`いちばん強いカードから${item.count}枚渡してください`);
+      hand = removeCards(hand, cards);
+      handChanged = true;
+      g.handCount[uid] = hand.length;
+      g.handCount[item.to] = (g.handCount[item.to] || 0) + cards.length;
+      inbox.push({ to: item.to, item: { kind: 'cards', cards: [...cards], from: uid, reason: 'exchange', gameNo: g.gameNo } });
+      inbox.push({ to: uid, item: { kind: 'notice', cards: [...cards], to: item.to, reason: 'exchangeGive', gameNo: g.gameNo } });
+      item.done = true;
+      if (g.exchange[item.to]) g.exchange[item.to].waitGive = false;
+      g.events.push({ t: 'exchangeGive', uid, to: item.to, count: cards.length });
+      if (Object.values(g.exchange).every((x) => x.done)) startPlay(g);
+      break;
+    }
     case 'exchangeReturn': {
       if (g.status !== 'exchange') err('カード交換中ではありません');
       const item = g.exchange?.[uid];
-      if (!item || item.done) err('返すカードはありません');
+      if (!item || item.give || item.done) err('返すカードはありません');
+      if (item.waitGive) err('相手が渡すカードを選んでいます');
       needMine();
       const cards = action.cards || [];
       if (cards.length !== item.count) err(`${item.count}枚選んでください`);

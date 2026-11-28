@@ -177,7 +177,9 @@ export function pendingDecision(game, uid) {
   if (!game) return null;
   if (game.status === 'exchange') {
     const it = game.exchange?.[uid];
-    return it && !it.done ? { kind: 'exchange', count: it.count } : null;
+    if (!it || it.done || it.waitGive) return null;
+    if (it.give) return { kind: 'exchangeGive', count: it.count, forced: [...(it.forced || [])], options: [...(it.options || [])], pick: it.pick };
+    return { kind: 'exchange', count: it.count };
   }
   if (game.status !== 'playing') return null;
   if (game.bombApply) return game.bombApply.waiting?.[uid] ? { kind: 'bombApply' } : null;
@@ -192,6 +194,12 @@ export function heuristicChoice(game, uid, hand, decision) {
     case 'seven': return { type: 'seven', cards: weakestCards(hand, decision.count, game) };
     case 'ten': return { type: 'ten', cards: weakestCards(hand, decision.count, game) };
     case 'exchange': return { type: 'exchangeReturn', cards: weakestCards(hand, decision.count, null) };
+    case 'exchangeGive': {
+      // 同じ強さのカードのうち、手札に同じマークが少ない(階段や縛りに使いにくい)ものから渡す
+      const suitCount = (c) => (isJk(c) ? 0 : hand.filter((x) => x[0] === c[0]).length);
+      const opts = [...decision.options].sort((a, b) => suitCount(a) - suitCount(b));
+      return { type: 'exchangeGive', cards: [...decision.forced, ...opts.slice(0, decision.pick)] };
+    }
     case 'bomb': return { type: 'bomb', ranks: bombRanks(hand, decision.count, game) };
     case 'bombApply': return { type: 'bombApply' };
     default: return null;

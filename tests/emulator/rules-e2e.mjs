@@ -105,7 +105,11 @@ async function playGame() {
       const c = p.c, gg = c.game, me = c.uid;
       if (!gg || !c.synced()) continue;
       try {
-        if (gg.status === 'exchange' && gg.exchange?.[me] && !gg.exchange[me].done) await c.perform({ type: 'exchangeReturn', cards: c.hand.slice(0, gg.exchange[me].count) });
+        const ex = gg.exchange?.[me];
+        if (gg.status === 'exchange' && ex && !ex.done && !ex.waitGive) {
+          if (ex.give) await c.perform({ type: 'exchangeGive', cards: [...(ex.forced || []), ...(ex.options || []).slice(0, ex.pick)] });
+          else await c.perform({ type: 'exchangeReturn', cards: c.hand.slice(0, ex.count) });
+        }
         else if (gg.status !== 'playing') continue;
         else if (gg.pending?.uid === me) {
           if (gg.pending.type === 'bomb') await c.perform({ type: 'bomb', ranks: ['3', '9', 'K', 'JK'].slice(0, gg.pending.count) });
