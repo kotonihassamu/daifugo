@@ -8,8 +8,8 @@ import { sound } from './sound.js';
 import { esc, toast, openModal, closeModal } from './dom.js';
 
 const FX_TEXT = {
-  revolution: ['革命!', 'big red'],
-  revolutionBack: ['革命返し!', 'big red'],
+  revolution: ['革命!', 'big red geba'],
+  revolutionBack: ['革命返し!', 'big red geba'],
   elevenBack: ['11バック', 'purple'],
   suitLock: ['縛り', 'blue'],
   numberLock: ['数字縛り', 'blue'],
@@ -99,7 +99,6 @@ export class GameView {
             <div class="badges"></div>
             <div class="field" id="field"></div>
             <div class="field-info"></div>
-            <div class="bomb-memo" aria-label="この場でボンバーされた数字"></div>
           </div>
           <div class="status-line"></div>
           <div class="badges side-badges"></div>
@@ -120,7 +119,7 @@ export class GameView {
       code: q('.g-code'), no: q('.g-no'), table: q('#table'), seats: q('.seats'), field: q('#field'),
       fieldInfo: q('.field-info'), badges: q('.badges'), status: q('.status-line'), me: q('.me-bar'),
       prompt: q('.prompt'), hand: q('#hand'), pass: q('.pass-btn'), play: q('.play-btn'), sort: q('.sort-btn'),
-      turn: q('.turn-banner'), note: q('.hand-note'), sideBadges: q('.side-badges'), bombMemo: q('.bomb-memo'),
+      turn: q('.turn-banner'), note: q('.hand-note'), sideBadges: q('.side-badges'),
     };
     // 場をタップすると最新の手を大きく表示(それより前の手は見せない)
     this.el.field.addEventListener('click', () => this.openTopPlay());
@@ -207,7 +206,6 @@ export class GameView {
     this.el.no.textContent = `第${g.gameNo}ゲーム`;
     this.renderSeats(g);
     this.renderField(g.field);
-    this.renderBombMemo(g.bombNotes);
     this.renderBadges(g);
     this.renderStatus(g);
     this.renderMe(g);
@@ -348,26 +346,24 @@ export class GameView {
     openModal(body);
   }
 
-  // この場でボンバーされた数字を、場の端にメモ書きのように出す(場が流れたら消える)
-  renderBombMemo(notes) {
+  // この場でボンバーされた数字(場が流れたら消える)
+  bombChip(notes) {
     const ranks = [];
     for (const n of notes || []) for (const r of n.ranks || []) if (!ranks.includes(r)) ranks.push(r);
-    this.el.bombMemo.classList.toggle('show', ranks.length > 0);
-    this.el.bombMemo.innerHTML = ranks.length
-      ? `<small>ボンバー済み</small><b>${ranks.map((r) => esc(bombRankLabel(r))).join('・')}</b>`
-      : '';
+    return ranks.length ? `<span class="badge bomb-chip"><small>ボンバー済み</small> ${ranks.map((r) => esc(bombRankLabel(r))).join('・')}</span>` : '';
   }
 
   renderBadges(g) {
     const b = [];
     const e = g.effects;
-    if (e.revolution) b.push('<span class="badge red">革命中</span>');
+    // 革命中は画面全体が赤くなり、テーブルに「革命」と出るのでバッジは出さない
     if (e.elevenBack) b.push('<span class="badge purple">11バック</span>');
     if (e.suitLock) b.push(`<span class="badge blue">${esc(suitLockText(e.suitLock, fieldTop(g)))}</span>`);
     if (e.numberLock) {
       const next = numberLockText(fieldTop(g), e);
       b.push(`<span class="badge blue">数字縛り${next ? ' ' + esc(next) : ''}</span>`);
     }
+    b.push(this.bombChip(g.bombNotes));
     this.el.badges.innerHTML = b.join('');
     this.el.sideBadges.innerHTML = b.join(''); // 横向きでは右の列に出す
     // 革命中・11バック中はテーブルの見た目を変える
@@ -770,7 +766,7 @@ export class GameView {
             const t = f === 'suitLock' ? suitLockText(g.effects.suitLock || [], ev) : f === 'numberLock' ? `数字縛り ${numberLockText(ev, g.effects)}`.trim() : text;
             this.fx(t, cls);
           }
-          this.renderBadges({ ...g, field });
+          this.renderBadges({ ...g, field, bombNotes });
           break;
         }
         case 'pass':
@@ -793,7 +789,7 @@ export class GameView {
           await sweep(this.el.field, ev.reason === 'eight');
           field = [];
           bombNotes = [];
-          this.renderBombMemo(bombNotes);
+          this.renderBadges({ ...g, field, bombNotes });
           this.el.fieldInfo.innerHTML = '';
           break;
         }
@@ -824,7 +820,7 @@ export class GameView {
         case 'bomb':
           this.fx(`ボンバー:${ev.ranks.map(bombRankLabel).join('・')}`, 'orange');
           bombNotes = [...bombNotes, { by: ev.uid, ranks: ev.ranks }];
-          this.renderBombMemo(bombNotes);
+          this.renderBadges({ ...g, field, bombNotes });
           break;
         case 'ochi':
           this.fx(`${this.name(ev.uid)} 都落ち…`, 'purple');

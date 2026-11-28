@@ -1,5 +1,6 @@
 // 演出(CSS transform 中心。視差効果を減らす設定なら控えめに)
 import { cardEl } from './card-svg.js';
+import { gebaSvg, canGeba } from './geba.js';
 
 export const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 export const wait = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -51,7 +52,9 @@ export function flyCard(code, fromRect, toRect, { duration = 450, delay = 0, wid
 export async function banner(text, cls = '') {
   const el = document.createElement('div');
   el.className = 'banner ' + cls;
-  el.textContent = text;
+  // 革命の文字はゲバ字で描く(枠や色はほかのバナーと同じ)
+  if (/\bgeba\b/.test(cls) && canGeba(text)) el.innerHTML = gebaSvg(text, { cls: 'geba-text' });
+  else el.textContent = text;
   layer().appendChild(el);
   const d = reduceMotion() ? 500 : 900;
   const anim = el.animate(
