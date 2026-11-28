@@ -152,12 +152,22 @@ export function weakestCards(hand, n, game) {
   return [...hand].sort((a, b) => score(a) - score(b)).slice(0, n);
 }
 
-// 12ボンバーで指定する数字:自分が持っていない強い数字から
+// 12ボンバーで指定する数字:相手の手札に残っていそうな強い数字から。
+// すでに出た・捨てられたカード(game.seen)と自分の手札を数え、残りが0枚の数字は選ばない。自分が持っている数字も避ける
+const RANK_ORDER = ['3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A', '2'];
 export function bombRanks(hand, count, game) {
-  const mine = new Set(hand.map((c) => (isJk(c) ? 'JK' : c[1])));
-  const order = ['JK', '2', 'A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3'];
-  const jokersInGame = game?.rules?.jokers ?? 2;
-  const pick = order.filter((r) => !mine.has(r) && !(r === 'JK' && jokersInGame === 0));
+  const key = (c) => (isJk(c) ? 'JK' : c[1]);
+  const mine = new Set(hand.map(key));
+  const gone = {};
+  for (const c of [...(game?.seen || []), ...hand]) gone[key(c)] = (gone[key(c)] || 0) + 1;
+  const jokers = game?.rules?.jokers ?? 2;
+  const left = (r) => (r === 'JK' ? jokers : 4) - (gone[r] || 0);
+  // 強い順(革命中は小さい数字が強い)。ジョーカーはいつも最強
+  const strong = direction(game?.effects || {}) < 0 ? RANK_ORDER : [...RANK_ORDER].reverse();
+  const order = ['JK', ...strong];
+  const pick = order.filter((r) => !mine.has(r) && left(r) > 0);
+  // 足りなければ、残りがある数字(自分も持っている数字を含む)→ どれでも
+  for (const r of order) if (pick.length < count && !pick.includes(r) && left(r) > 0) pick.push(r);
   for (const r of order) if (pick.length < count && !pick.includes(r)) pick.push(r);
   return pick.slice(0, count);
 }
